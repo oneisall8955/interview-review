@@ -1,8 +1,10 @@
 # Redis相关
 
 ## Redis结构
+（待完善）
 
 ## Redis为什么是单线程而查询快
+（待完善）
 
 ## Redis数据结构
 + String
@@ -21,3 +23,6 @@
 + ZSet（Sorted Set）
 
     和set相比，sorted set增加了一个权重参数score，使得集合中的元素能够按score进行有序排列。
+
+## Redis持久化方式
+（待完善）

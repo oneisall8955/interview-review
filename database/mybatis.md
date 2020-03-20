@@ -6,11 +6,12 @@
 
 ## #{} 和 ${} 的区别
 + `${}`是 Properties 文件中的变量占位符。它可以用于标签属性值和 sql 内部，属于静态文本替换，
-比如${driver}会被静态替换为com.mysql.jdbc.Driver。
+比如`${driver}`会被静态替换为`com.mysql.jdbc.Driver`。
 + `#{}`是 sql 的参数占位符，Mybatis 会将SQL中的#{}替换为?号，
 在 sql 执行前会使用`PreparedStatement`的参数设置方法，按序给 sql 的?号占位符设置参数值，比如`ps.setInt(0, parameterValue)`，`#{item.name}` 的取值方式为使用反射从参数对象中获取 item 对象的 name 属性值，相当于 `param.getItem().getName()`。
 
 ## MyBatis 延迟加载
+（待完善）
 
 ## MyBatis一级缓存二级缓存
 + 一级缓存 是 SqlSession 级别的缓存。在操作数据库时需要构造sqlSession对象，在对象中有一个数据结构（HashMap）用于存储缓存数据。不同的sqlSession之间的缓存数据区域（HashMap）是互相不影响的。
