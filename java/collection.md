@@ -1,7 +1,6 @@
 # 集合及 MAP
 
 ## ArrayList 和 LinkedList 区别和优缺点
-
 + ArrayList 是动态数组，是基于索引(index)的数据结构。
 查询快，增删慢。
 + LinkedList 是双向链表。
@@ -13,7 +12,6 @@
 + Hashtable：与 HashMap 相似。几乎所有public方法都加了`synchronized`。因性能问题也被弃用了。
 
 ## Hashtable和 ConcurrentHashMap 的区别（未完善）
-
 Hashtable 和 ConcurrentHashMap 都为线程安全的集合。
 + 锁机制不同。
     + Hashtable使用的是public方法加上`synchronized`关键字，一次锁住整个hash表。
