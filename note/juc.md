@@ -160,6 +160,7 @@ ___
         Java中`synchronized`和`ReentrantLock`等独占锁就是悲观锁思想的实现。
     
 ### Atomic原子类
+
 原子类指一个操作是不可中断的。JUC包里的基础原子类分为4类：
 + 基本类型：使用原子的方式更新基本类型。
     + AtomicInteger：整型原子类
@@ -183,6 +184,7 @@ ___
     + AtomicMarkableReference：原子更新带有标记的引用类型。该类将 boolean 标记与引用关联起来，
 ___
 #### 基本类型原子类
+
 包含了`AtomicInteger`整型原子类，`AtomicLong`长整型原子类和`AtomicBoolean`布尔型原子类。
 三个类提供的方法几乎相同。以`AtomicInteger`为例：
 
@@ -214,6 +216,7 @@ private volatile int value;
 `AtomicInteger`类利用 `CAS (Compare And Swap)` + `volatile`和`Unsafe`类的`native`方法来保证原子操作，避免了`synchronized`的高额开销，提升效率。
 ___
 #### 数组类型原子类
+
 包含了`AtomicIntegerArray`整形数组原子类，`AtomicLongArray`长整形数组原子类 和 `AtomicReferenceArray`引用类型数组原子类。
 三个类提供的方法几乎相同。以`AtomicIntegerArray`为例：
 
@@ -227,6 +230,7 @@ ___
 + `public final void lazySet(int i, int newValue)`：最终 将index=i 位置的元素设置为newValue,使用 lazySet 设置之后可能导致其他线程在之后的一小段时间内还是可以读到旧的值。
 ___
 #### 引用类型原子类
+
 基本类型原子类只能更新一个变量，如果需要原子更新多个变量，需要使用**引用类型原子类**。 
 
 包含了`AtomicReference`原子更新引用类型，
@@ -272,6 +276,7 @@ ___
     其他与`AtomicStampedReference`类似。
 ___
 #### 对象的属性修改类型
+
 当需要原子更新某个类里的某个字段时，需要用到**对象的属性修改类型原子类**。
 
 包含了`AtomicIntegerFieldUpdater`原子更新整型字段的更新器，
