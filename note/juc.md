@@ -1,10 +1,12 @@
 # 集合与JUC笔记
 ## 基础集合扫盲
-###Collection
-是所有集合的基类（接口）。
+### Collection
+
+Collection是所有集合的基类（接口）。
 Java 8支持lambda语法。新增了不少的方法。（待拓展）
 ___
-####**List**
+#### **List**
+
 List是一个有序可重复的集合，允许有null值。
 + List提供了一个特殊的迭代器`ListIterator`。
 + 提供了`add()`, `remove(Object o)`, `addAll()`, `removeAll()`, `clear()`的新增删除操作方法。
@@ -63,7 +65,8 @@ ___
     Collections提供了将集合转为线程安全的集合。Collections内置`SynchronizedList`类实现 List 接口方法时，内部都加上了 synchronized 代码块。
     但 Iterator 没有实现同步，所以在使用时需要对 Iterator 进行同步。
 ___
-####**Map**
+#### **Map**
+
 Key-Value键值对（一对一）数据结构。Key是唯一的。
 + 提供了`put()`, `remove()`, `putAll()`, `removeAll()`的新增删除方法。
 + 提供了`keySet()`, `values()`, `entrySet()`获取键、值集合的方法。
@@ -123,7 +126,8 @@ Key-Value键值对（一对一）数据结构。Key是唯一的。
             
    __**建议使用ConcurrentHashMap类。**__
 ___
-####**Set**
+#### **Set**
+
 无序不重复的集合。底层数据结构使用 Map 实现。将Map的Key作为Set集合的内容，保证了唯一性。
         
 + HashSet: 底层使用 HashMap。
@@ -131,6 +135,7 @@ ___
 + `Collections.synchronizedSet(Set set)`与前面一样。
 ___
 ## JUC(java.util.concurrent)扫盲
+
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
 
 1. **CAS(Compare And Swap)**
@@ -155,7 +160,7 @@ ___
         Java中`synchronized`和`ReentrantLock`等独占锁就是悲观锁思想的实现。
     
 ### Atomic原子类
-原子类指一个操作是不可中断的。JUC包里的原子类分为4类：
+原子类指一个操作是不可中断的。JUC包里的基础原子类分为4类：
 + 基本类型：使用原子的方式更新基本类型。
     + AtomicInteger：整型原子类
     + AtomicLong：长整型原子类
@@ -265,7 +270,7 @@ ___
     
     带布尔（boolean）类型版本号（或叫标记位），表示引用类型是否被更改过。
     其他与`AtomicStampedReference`类似。
-
+___
 #### 对象的属性修改类型
 当需要原子更新某个类里的某个字段时，需要用到**对象的属性修改类型原子类**。
 
@@ -284,4 +289,7 @@ ___
     + 字段必须是`volatile`的。访问权限修饰符`public/protected/default/private`调用者与操作对象字段的关系一致。建议使用`public`。
     + `AtomicIntegerFieldUpdater`和`AtomicLongFieldUpdater`只能修改`int/long`类型的字段，不能修改其包装类型`Integer/Long`，如果要修改包装类型就需要使用`AtomicReferenceFieldUpdater`。
     + 只能是可修改的实例变量，不能为`static`、`final`修饰。
-    
+___
+#### 解决高并发性能问题——LongAdder/DoubleAdder
+
+___
