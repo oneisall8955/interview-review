@@ -158,7 +158,37 @@ ___
         即认为别人在取数据时，都会修改操作对象的数据，所以每次操作都加锁。适合写多读少的场景。
         
         Java中`synchronized`和`ReentrantLock`等独占锁就是悲观锁思想的实现。
+
+2. **volatile**
+
+    类型修饰符。作用是作为指令关键字，确保本条指令不会因编译器的优化而省略。
+
+    原子性操作：简单的读取、赋值（非变量间赋值）
     
+1. 特点：
+
+    + 可见性。保证不同线程对修饰变量进行操作的可见性，即一个线程修改了某个变量的值，新的值对其他线程是立即可见的。
+    + 有序性。禁止进行指令重排序。
+    + 原子性。只能保证对单次读/写的原子性。
+
+    `synchronized`和`Lock`也能保证可见性。
+    保证同一时刻只有一个线程获取锁然后执行同步代码，并且在释放锁之前会将对变量的修改刷新到主存当中。
+
+2. 原理和实现机制（保证可见性和禁止指令重排序）
+
+    加入`volatile`关键字时，会多出一个`lock`前缀指令。
+    
+    `lock`前缀指令实际上相当于一个内存屏障（也成内存栅栏），内存屏障会提供3个功能：
+    + 确保在执行到内存屏障这句指令时，在它前面的操作已经全部完成。即不会把内存屏障前面的指令排到其后面，不会把其后面的指令排到其前面。
+    + 强制对缓存的修改操作立即写入主存中。
+    + 写操作会导致其他CPU对应的缓存行失效。
+    
+3. 应用场景
+    + 对变量的写操作不依赖于当前值。
+    + 该变量没有包含在具有其他变量的不变式中。
+    
+    只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
+___   
 ### Atomic原子类
 
 原子类指一个操作是不可中断的。JUC包里的基础原子类分为4类：
@@ -174,47 +204,46 @@ ___
     
 + 引用类型
     + AtomicReference：原子更新引用类型
-    + AtomicReferenceFieldUpdater：原子更新带有版本号的引用类型
+    + AtomicStampedReference：原子更新带有版本号的引用类型。该类将整数值与引用关联起来，可用于解决原子的更新数据和数据的版本号，可以解决使用 CAS 进行原子更新时可能出现的 ABA 问题。
     + AtomicMarkableReference：原子更新带有标记位的引用类型
     
 + 对象的属性修改类型
     + AtomicIntegerFieldUpdater：原子更新整型字段的更新器
     + AtomicLongFieldUpdater：原子更新长整型字段的更新器
-    + AtomicStampedReference：原子更新带有版本号的引用类型。该类将整数值与引用关联起来，可用于解决原子的更新数据和数据的版本号，可以解决使用 CAS 进行原子更新时可能出现的 ABA 问题。
-    + AtomicMarkableReference：原子更新带有标记的引用类型。该类将 boolean 标记与引用关联起来，
+    + AtomicReferenceFieldUpdater：原子更新引用类型里的字段
 ___
 #### 基本类型原子类
 
 包含了`AtomicInteger`整型原子类，`AtomicLong`长整型原子类和`AtomicBoolean`布尔型原子类。
 三个类提供的方法几乎相同。以`AtomicInteger`为例：
 
-`AtomicInteger`类常用方法
-+ `public final int get()`：获取当前的值
-+ `public final int getAndSet(int newValue)`：获取当前的值，并设置新的值
-+ `public final int getAndIncrement()`：获取当前的值，并自增
-+ `public final int getAndDecrement()`：获取当前的值，并自减
-+ `public final int getAndAdd(int delta)`：获取当前的值，并加上预期的值
-+ `boolean compareAndSet(int expect, int update)`：如果输入的数值等于预期值，则以原子方式将该值设置为输入值（update）
-+ `public final void lazySet(int newValue)`：最终设置为newValue,使用 lazySet 设置之后可能导致其他线程在之后的一小段时间内还是可以读到旧的值。
+1. `AtomicInteger`类常用方法
+    + `public final int get()`：获取当前的值
+    + `public final int getAndSet(int newValue)`：获取当前的值，并设置新的值
+    + `public final int getAndIncrement()`：获取当前的值，并自增
+    + `public final int getAndDecrement()`：获取当前的值，并自减
+    + `public final int getAndAdd(int delta)`：获取当前的值，并加上预期的值
+    + `boolean compareAndSet(int expect, int update)`：如果输入的数值等于预期值，则以原子方式将该值设置为输入值（update）
+    + `public final void lazySet(int newValue)`：最终设置为newValue,使用 lazySet 设置之后可能导致其他线程在之后的一小段时间内还是可以读到旧的值。
 
-**线程安全原理**
-```
-// setup to use Unsafe.compareAndSwapInt for updates
-// 使用Unsafe.compareAndSwapInt(CAS)进行更新
-private static final Unsafe unsafe = Unsafe.getUnsafe();
-private static final long valueOffset;
-   
-static {
-    try {
-        // 获取 字段value 相对Java对象的“起始地址”的偏移量，可以理解为找到内存地址
-        valueOffset = unsafe.objectFieldOffset
-            (AtomicInteger.class.getDeclaredField("value"));
-    } catch (Exception ex) { throw new Error(ex); }
-}
-// 储存的关键值
-private volatile int value;
-```
-`AtomicInteger`类利用 `CAS (Compare And Swap)` + `volatile`和`Unsafe`类的`native`方法来保证原子操作，避免了`synchronized`的高额开销，提升效率。
+2. **线程安全原理**
+    ```
+    // setup to use Unsafe.compareAndSwapInt for updates
+    // 使用Unsafe.compareAndSwapInt(CAS)进行更新
+    private static final Unsafe unsafe = Unsafe.getUnsafe();
+    private static final long valueOffset;
+       
+    static {
+        try {
+            // 获取 字段value 相对Java对象的“起始地址”的偏移量，可以理解为找到内存地址
+            valueOffset = unsafe.objectFieldOffset
+                (AtomicInteger.class.getDeclaredField("value"));
+        } catch (Exception ex) { throw new Error(ex); }
+    }
+    // 储存的关键值
+    private volatile int value;
+    ```
+    `AtomicInteger`类利用 `CAS (Compare And Swap)` + `volatile`和`Unsafe`类的`native`方法来保证原子操作，避免了`synchronized`的高额开销，提升效率。
 ___
 #### 数组类型原子类
 
@@ -455,4 +484,25 @@ ___
     
     + `LongAccumulator`：是`LongAdder`的增强版。`LongAdder`只能针对数值的进行加减运算，而`LongAccumulator`提供了自定义的函数操作
     + `DoubleAdder`和`DoubleAccumulator`：用于操作`double`原始类型。内部会通过一些方法，将原始的`double`类型，转换为`long`类型。其他和`LongAdder`完全一样
+___
+### 并发容器
+
+___
+#### ConcurrentHashMap
+
+___
+#### CopyOnWriteArrayList
+
+___
+#### ConcurrentLinkedQueue
+
+___
+#### BlockingQueue
+
+___
+#### ConcurrentLinkedQueue
+
+___
+#### ConcurrentSkipListMap
+
 ___
