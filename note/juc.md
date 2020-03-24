@@ -206,11 +206,12 @@ private static final long valueOffset;
    
 static {
     try {
+        // 获取 字段value 相对Java对象的“起始地址”的偏移量，可以理解为找到内存地址
         valueOffset = unsafe.objectFieldOffset
             (AtomicInteger.class.getDeclaredField("value"));
     } catch (Exception ex) { throw new Error(ex); }
 }
-
+// 储存的关键值
 private volatile int value;
 ```
 `AtomicInteger`类利用 `CAS (Compare And Swap)` + `volatile`和`Unsafe`类的`native`方法来保证原子操作，避免了`synchronized`的高额开销，提升效率。
@@ -297,4 +298,161 @@ ___
 ___
 #### 解决高并发性能问题——LongAdder/DoubleAdder
 
+在高并发场景下，使用`LongAdder`和`DoubleAdder`可以提升性能，但会**消耗更多的内存空间**。在并发较低的场景下，`LongAdder`和`AtomicLong`性能差不多。其父类为`Striped64`。
+`LongAdder`和`DoubleAdder`原理一致，这里以`LongAdder`为例进行分析学习。
+
++ LongAdder
+
+    内部有2个变量，一个是`base`变量，一个`Cell[]`数组。
+    + `base`变量：非竞态条件下，直接累加到该变量上。
+    + `Cell[]`数组：竞态条件下，累加个各个线程自己的槽`Cell[i]`中。
+    
+    核心方法：
+    + `public void add(long x)`
+        
+        源码：
+        
+        ```
+        public void add(long x) {
+            Cell[] as; long b, v; int m; Cell a;
+            // 初始化时cells为null，进入casBase方法，进行CAS操作，如果操作成功则不会进入if语句内
+            // 如果在发生并发冲突时，casBase失败，进入if语句内
+            if ((as = cells) != null || !casBase(b = base, b + x)) {
+                // 没有竞争的标志 uncontended
+                boolean uncontended = true;
+                // 判断Cell[] as数组是否初始化过
+                // 如果初始化过，根据当前线程的Hash值映射到Cell[]数组(即as)指定槽位。
+                // 对指定槽位的数值进行CAS更新，更新成功则不会进入if语句。
+                // 如果更新失败，则进入if语句，执行longAccumulate方法
+                if (as == null || (m = as.length - 1) < 0 ||
+                    (a = as[getProbe() & m]) == null ||         
+                    !(uncontended = a.cas(v = a.value, v + x)))
+                    longAccumulate(x, null, uncontended);
+             }
+        }
+        ```
+        > 只有从未出现过并发冲突的时候，`base`基数才会使用到。只要发生冲突，后续只针对`Cell[]`数组的单元对象。
+        >
+        > 只有在 `Cell[]`数组未初始化 和 `Cell[]`数组已初始化但发生在Cell单元内发生冲突时，会调用父类的`longAccumelate`去初始化`Cell[]`或扩容。
+        
+        特点：尽量减少热点冲突，不到最后万不得已，尽量将CAS操作延迟。
+    
+    + Striped64类中`final void longAccumulate(long x, LongBinaryOperator fn, boolean wasUncontended)`
+    
+        `longAccumulate`分了三种情况进行处理：
+        
+        + Cell[]数组已经初始化
+            
+            ```
+            // 如果cells已经被初始化了
+            if ((as = cells) != null && (n = as.length) > 0) {
+                // 根据当前线程的hash值映射找到Cell单元
+                if ((a = as[(n - 1) & h]) == null) {                        
+                    // 没有加锁，证明Cell[]数组没有正在扩容
+                    if (cellsBusy == 0) {       // Try to attach new Cell   
+                        // 创建一个Cell对象，传入x
+                        Cell r = new Cell(x);   // Optimistically create    
+                            // 尝试加锁，成功后 cellsBusy 为 1
+                            if (cellsBusy == 0 && casCellsBusy()) {         
+                                // 创建标志位
+                                boolean created = false;
+                                try {               // Recheck under lock
+                                    // 在持有锁情况下对之前的判断进行检查
+                                    Cell[] rs; int m, j;
+                                    if ((rs = cells) != null &&
+                                        (m = rs.length) > 0 &&
+                                        rs[j = (m - 1) & h] == null) {
+                                        rs[j] = r;     // 检查一致的话才将创建的Cell对象传入
+                                        created = true;     // 将创建标志位置为true
+                                    }
+                                } finally {
+                                    cellsBusy = 0;      // 释放锁
+                                }
+                                if (created)    // 只有创建成功的时候才会跳出循环，否则继续循环
+                                    break;
+                                continue;           // Slot is now non-empty
+                            }
+                        }
+                        collide = false;     // 没有冲突，不需要扩容
+                    }
+                    // wasUncontended表示前一次CAS操作是否成功，为传入参数。
+                    // 如果失败了则将wasUncontended置为true，重新进入循环，计算线程hash值
+                    else if (!wasUncontended)       // CAS already known to fail
+                        wasUncontended = true;      // Continue after rehash
+                    // 尝试CAS操作，更新成功就跳出循环
+                    else if (a.cas(v = a.value, ((fn == null) ? v + x : fn.applyAsLong(v, x))))
+                        break;
+                    // 如果Cell数组大小（n）超过CPU核数，或者cells被修改，重置collide，不需要扩容，直接重试。
+                    // 因为在最后会重算线程Hash值，去重新找新的槽位，直到槽位可用
+                    else if (n >= NCPU || cells != as)
+                        collide = false;            // At max size or stale
+                    // 到这里证明，Cell数组（a）不为空，但有多个线程在a上竞争，需要扩容cells数组。
+                    else if (!collide)
+                        collide = true;
+                    // 尝试加锁进行扩容
+                    else if (cellsBusy == 0 && casCellsBusy()) {
+                        try {
+                            // 判断在加锁前是否被修改过
+                            if (cells == as) {      // Expand table unless stale
+                                Cell[] rs = new Cell[n << 1];       // 扩容大小为当前容量的2倍
+                                for (int i = 0; i < n; ++i)
+                                    rs[i] = as[i];
+                                    cells = rs;
+                            }
+                        } finally {
+                            cellsBusy = 0;      // 释放锁
+                    }
+                    collide = false;            
+                    continue;                   // Retry with expanded table
+                }
+                h = advanceProbe(h);        // 重算线程Hash值
+            }
+            ```
+        + Cell[]数组未初始化
+            
+            ```
+            // Cell没有初始化且没加锁，对其尝试加锁，初始化cells数组
+            else if (cellsBusy == 0 && cells == as && casCellsBusy()) {
+                // 初始化标志init
+                boolean init = false;
+                try {                           // Initialize table
+                    if (cells == as) {
+                        Cell[] rs = new Cell[2];        // 初始化大小为2（必须是2^n）
+                        rs[h & 1] = new Cell(x);        // 根据当前线程hash值计算映射索引并将传入值赋予对应索引的槽位
+                        cells = rs;                     // 再赋给cells数组
+                        init = true;                    // 初始化完成
+                    }
+                } finally {
+                    cellsBusy = 0;      // 释放锁
+                }
+                if (init)
+                    break;      // 初始化完成之后跳出
+                }
+            ```
+            
+        + Cell[]数组正在初始化中
+            ```
+            // 在初始化过程中，有其他线程也进入了此方法，直接将x累加到base上
+            else if (casBase(v = base, ((fn == null) ? v + x : fn.applyAsLong(v, x))))
+                    break;                          // Fall back on using base
+            ```
+    
+        变量参数说明：
+        + cellsBusy：自旋锁标志位。0代表空闲，1代表已加锁。
+        + NCPU：CPU核数。
+    
+    + `LongAdder.sum()`
+    
+        返回**当前调用时刻**累加的值。此返回值可能不是绝对准确的。在调用`sum()`时可能有其他线程正在计数。
+        
+        **只能获取某个时刻的近似值。** 这也就是LongAdder并不能完全替代LongAtomic的原因之一。
+    
+    参考：[Java多线程进阶（十七）—— J.U.C之atomic框架：LongAdder](https://segmentfault.com/a/1190000015865714 "JUC——LongAdder")
+    
++ LongAdder的其他兄弟们
+
+    `LongAccumulator`、`DoubleAdder`、`DoubleAccumulator`三个。
+    
+    + `LongAccumulator`：是`LongAdder`的增强版。`LongAdder`只能针对数值的进行加减运算，而`LongAccumulator`提供了自定义的函数操作
+    + `DoubleAdder`和`DoubleAccumulator`：用于操作`double`原始类型。内部会通过一些方法，将原始的`double`类型，转换为`long`类型。其他和`LongAdder`完全一样
 ___
