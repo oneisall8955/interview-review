@@ -1,11 +1,18 @@
 # 集合与JUC笔记
-## 基础集合扫盲
-### Collection
+
+- [1 基础集合扫盲](#1-基础集合扫盲)
+    - [1.1 Collection](#11-Collection)
+        - [1.1.1 List](#111-List)
+- [2 JUC(java.util.concurrent)扫盲](#2-JUC(java.util.concurrent)扫盲)
+
+
+## 1 基础集合扫盲
+### 1.1 Collection
 
 Collection是所有集合的基类（接口）。
 Java 8支持lambda语法。新增了不少的方法。（待拓展）
 ___
-#### **List**
+#### 1.1.1 **List**
 
 List是一个有序可重复的集合，允许有null值。
 + List提供了一个特殊的迭代器`ListIterator`。
@@ -134,7 +141,7 @@ ___
 + TreeSet: 自然排序的Set，底层使用 TreeMap。加入的元素必须实现 `Comparable` 接口。
 + `Collections.synchronizedSet(Set set)`与前面一样。
 ___
-## JUC(java.util.concurrent)扫盲
+## 2 JUC(java.util.concurrent)扫盲
 
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
 
@@ -486,6 +493,8 @@ ___
     + `DoubleAdder`和`DoubleAccumulator`：用于操作`double`原始类型。内部会通过一些方法，将原始的`double`类型，转换为`long`类型。其他和`LongAdder`完全一样
 ___
 ### 并发容器
+
+JDK提供的并发容器大部分存在于`java.util.concurrent`包。
 
 ___
 #### ConcurrentHashMap
