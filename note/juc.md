@@ -1,12 +1,12 @@
 # 集合与JUC笔记
 
-目录
+## 目录
 
 - [基础集合扫盲](#基础集合扫盲)
     - [Collection](#Collection)
-        - [List](#**List**)
-        - [Map](#**Map**)
-        - [Set](#**Set**)
+        - [List](#List)
+        - [Map](#Map)
+        - [Set](#Set)
 - [JUC(java.util.concurrent)扫盲](#JUC（java.util.concurrent）扫盲)
     - [Atomic原子类](#Atomic原子类)
         - [基本类型原子类](#基本类型原子类)
@@ -28,7 +28,7 @@ ___
 Collection是所有集合的基类（接口）。
 Java 8支持lambda语法。新增了不少的方法。（待拓展）
 ___
-#### **List**
+#### List
 
 List是一个有序可重复的集合，允许有null值。
 + List提供了一个特殊的迭代器`ListIterator`。
@@ -88,7 +88,7 @@ ___
     Collections提供了将集合转为线程安全的集合。Collections内置`SynchronizedList`类实现 List 接口方法时，内部都加上了 synchronized 代码块。
     但 Iterator 没有实现同步，所以在使用时需要对 Iterator 进行同步。
 ___
-#### **Map**
+#### Map
 
 Key-Value键值对（一对一）数据结构。Key是唯一的。
 + 提供了`put()`, `remove()`, `putAll()`, `removeAll()`的新增删除方法。
@@ -149,13 +149,16 @@ Key-Value键值对（一对一）数据结构。Key是唯一的。
             
    __**建议使用ConcurrentHashMap类。**__
 ___
-#### **Set**
+#### Set
 
 无序不重复的集合。底层数据结构使用 Map 实现。将Map的Key作为Set集合的内容，保证了唯一性。
         
 + HashSet: 底层使用 HashMap。
 + TreeSet: 自然排序的Set，底层使用 TreeMap。加入的元素必须实现 `Comparable` 接口。
 + `Collections.synchronizedSet(Set set)`与前面一样。
+
+___
++ [返回顶部](#目录)
 ___
 ## JUC（java.util.concurrent）扫盲
 
@@ -507,6 +510,8 @@ ___
     
     + `LongAccumulator`：是`LongAdder`的增强版。`LongAdder`只能针对数值的进行加减运算，而`LongAccumulator`提供了自定义的函数操作
     + `DoubleAdder`和`DoubleAccumulator`：用于操作`double`原始类型。内部会通过一些方法，将原始的`double`类型，转换为`long`类型。其他和`LongAdder`完全一样
+___
++ [返回顶部](#目录)
 ___
 ### 并发容器
 
