@@ -7,13 +7,13 @@
         - [List](#List)
         - [Map](#Map)
         - [Set](#Set)
-- [JUC(java.util.concurrent)扫盲](#JUC（java.util.concurrent）扫盲)
+- [JUC(java.util.concurrent)扫盲](#JUC扫盲)
     - [Atomic原子类](#Atomic原子类)
         - [基本类型原子类](#基本类型原子类)
         - [数组类型原子类](#数组类型原子类)
         - [引用类型原子类](#引用类型原子类)
         - [对象的属性修改类型](#对象的属性修改类型)
-        - [解决高并发性能问题——LongAdder/DoubleAdder](#解决高并发性能问题——LongAdder/DoubleAdder)
+        - [解决高并发性能问题——LongAdder/DoubleAdder](#可用于解决高并发性能问题的类)
     - [并发容器](#并发容器)
         - [ConcurrentHashMap](#ConcurrentHashMap)
         - [CopyOnWriteArrayList](#CopyOnWriteArrayList)
@@ -160,7 +160,7 @@ ___
 ___
 + [返回顶部](#目录)
 ___
-## JUC（java.util.concurrent）扫盲
+## JUC扫盲
 
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
 
@@ -351,7 +351,7 @@ ___
     + `AtomicIntegerFieldUpdater`和`AtomicLongFieldUpdater`只能修改`int/long`类型的字段，不能修改其包装类型`Integer/Long`，如果要修改包装类型就需要使用`AtomicReferenceFieldUpdater`。
     + 只能是可修改的实例变量，不能为`static`、`final`修饰。
 ___
-#### 解决高并发性能问题——LongAdder/DoubleAdder
+#### 可用于解决高并发性能问题的类
 
 在高并发场景下，使用`LongAdder`和`DoubleAdder`可以提升性能，但会**消耗更多的内存空间**。在并发较低的场景下，`LongAdder`和`AtomicLong`性能差不多。其父类为`Striped64`。
 `LongAdder`和`DoubleAdder`原理一致，这里以`LongAdder`为例进行分析学习。
