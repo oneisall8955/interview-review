@@ -12,4 +12,3 @@
    - [JUC(java.util.concurrent)扫盲](#JUC（java.util.concurrent）扫盲)
       
 - [常见经典算法（待完善）](algorithm.md)
-      
