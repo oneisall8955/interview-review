@@ -124,6 +124,15 @@ Key-Value键值对（一对一）数据结构。Key是唯一的。
         因为HashMap的扩容机制，存在可能多个线程对一个HashMap进行操作。
                     
         当多个线程对同个HashMap在进行插入操作并且HashMap需要进行扩容时，存在出现循环引用的问题。
+    
+    + JDK 1.8 增加 一定情况将链表结构转为红黑树
+        增加了`TREEIFY_THRESHOLD`和`UNTREEIFY_THRESHOLD`两个参数。
+        
+        ```
+        static final int TREEIFY_THRESHOLD = 8;         // 链表长度大于等于时，链表进化成树
+        static final int UNTREEIFY_THRESHOLD = 6;       // 链表长度小于等于时，树退化成链表
+        ```
+    
                 
 2. **TreeMap**
     
@@ -515,11 +524,306 @@ ___
 ___
 ### 并发容器
 
-JDK提供的并发容器大部分存在于`java.util.concurrent`包。
-
+JDK提供的并发容器大部分存在于`java.util.concurrent`包。以下先重点学习JUC下的5个集合。
++ ConcurrentHashMap：
++ CopyOnWriteArrayList
++ ConcurrentLinkedQueue
++ BlockingQueue
++ ConcurrentSkipListMap
 ___
 #### ConcurrentHashMap
+由于`Hashtable`在操作时使用`synchronized`对整个对象进行加锁（锁住了整个Hash表），导致`ashtable`效率低下。而`HashMap`为非线程安全。
+在JDK 1.5到1.7版本中，Java使用了**分段锁机制**实现`ConcurrentHashMap`。
+在JDK 1.8版本中，采用了`CAS + synchronized`代替`Segment + ReentrantLock`实现。
+此处对1.8版本进行源码学习。
++ JDK 1.7版本
 
+    `ConcurrentHashMap`采用了`Segment[]`数组和`HashEntry`组成，结构为数组加链表。
+    + `Segment`：`ConcurrentHashMap`内部类。继承`ReentrantLock`，是一种可重入锁，类似于HashMap的结构。
+    + `HashEntry`：存储键值对数据。
+    
+    将数据分成多个`Segment`，为每个`Segment`段都配了锁。当一个线程占用锁访问其中一个段数据的时候，其他段的数据也能被其他线程访问，能够实现真正的并发访问。
+
++ JDK 1.8版本
+
+    实现了`ConcurrentMap`接口。不允许`key`和`value`为null。更像是`Hashtable`。采用了`CAS + synchronized`代替`Segment + ReentrantLock`
+    
+    + 初始化
+    
+        初始化大小默认为16，负载因子为0.75。与`HashMap`一致。实际初始化存放位置是在添加元素的时候。
+        
+        初始化过程中，采用 `CAS` 配合 `sizeCtl` 进行加锁，其他线程在遇到数组正在初始化会让出CPU，保证初始化过程。
+        
+        插入数据时，如果定位到的数组槽位为空，则采用 `CAS` 进行数组槽插入；
+        如果位置已有数据，判断所在位置链接的是链表还是红黑树：
+        + 如果是链表的话，判断key及其hash值是否一致，一致则替换，不一致则用链表形式链接。
+        + 如果是红黑树的话，那就插入树结构。
+        + 有key相同进行替代的话，返回值为旧值。
+        
+        如果当前节点数binCount超过8个，则进行数组扩容或把节点转为树。
+        最后使用`addCount()`进行累积当前节点的数量，并判断是否需要扩容。
+        
+        `put`调用`putVal`的代码：
+        ```
+        final V putVal(K key, V value, boolean onlyIfAbsent) {
+            // key和value不能为null
+            if (key == null || value == null) throw new NullPointerException();  
+            // 获取key的hash值。spread()为ConcurrentHashMap中获取hash值的方法
+            int hash = spread(key.hashCode());      
+            int binCount = 0;       // 用来计算在这个节点总共有多少个元素，用来控制扩容或者转移为树
+            for (Node<K,V>[] tab = table;;) {
+                Node<K,V> f; int n, i, fh;
+                // 第一次put的时候需要初始化table
+                if (tab == null || (n = tab.length) == 0)
+                    tab = initTable();  // 见下一个方法
+                // 根据hash值计算找位置，如果对应的位置为null，进入if语句内
+                // 对当前位置进行CAS更新，插入成功则跳出循环，否则重试。
+                else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                    if (casTabAt(tab, i, null, new Node<K,V>(hash, key, value, null)))
+                        break;                   // no lock when adding to empty bin
+                }
+                // 如果定位到的位置的hash值为MOVED，数组正在扩容的数据复制阶段。
+                // 当前线程参与复制，通过允许多线程复制的功能，一次来减少数组的复制所带来的性能损失
+                else if ((fh = f.hash) == MOVED)
+                    tab = helpTransfer(tab, f); 
+                else {
+                    // 如果定位到的位置有元素，采用synchronized加锁
+                    V oldVal = null;
+                    synchronized (f) {
+                        // 再判断定位位置的对象和之前取的对象是否一致
+                        if (tabAt(tab, i) == f) {
+                            // hash值（fh = f.hash）大于0，则表示为链表。当转换为树之后，hash值为-2
+                            if (fh >= 0) {
+                                binCount = 1;
+                                for (Node<K,V> e = f;; ++binCount) {
+                                    K ek;
+                                    // 如果遍历找到key和key的hash值都一样的节点，将原来的值替换。
+                                    if (e.hash == hash &&           // key的hash值相同
+                                        ((ek = e.key) == key || (ek != null && key.equals(ek)))) {    // key相同
+                                        oldVal = e.val;
+                                        if (!onlyIfAbsent)      // 在put方法默认为false，当使用putIfAbsent的时候才会跳过
+                                            e.val = value;
+                                        break;      
+                                    }
+                                    Node<K,V> pred = e;
+                                    // 如果key一样，hash不一样，则判断下个节点是否为空，是的话就加入变成当前节点的下个节点。
+                                    if ((e = e.next) == null) {
+                                        pred.next = new Node<K,V>(hash, key, value, null);
+                                        break;
+                                    }
+                                }
+                            }
+                            // 表示已经转化成红黑树类型了
+                            else if (f instanceof TreeBin) {
+                                Node<K,V> p;
+                                binCount = 2;
+                                // 调用putTreeVal方法，将该元素添加到树中去
+                                if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key, value)) != null) {
+                                    oldVal = p.val;
+                                    if (!onlyIfAbsent)
+                                        p.val = value;
+                                }
+                            }
+                        }
+                    }
+                    if (binCount != 0) {
+                        // 当在同一个节点的数目达到TREEIFY_THRESHOLD（8个）的时候，则数组进行扩容或将给节点的数据转为tree
+                        if (binCount >= TREEIFY_THRESHOLD)
+                            treeifyBin(tab, i);     // 判断是扩容还是转树，数组和传入hash定位位置
+                        if (oldVal != null)
+                            return oldVal;
+                        break;
+                    }
+                }
+            }
+            addCount(1L, binCount); // 计binCount数量
+            return null;
+        }
+        ```
+        ```
+        // 用来初始化table存储数据
+        private final Node<K,V>[] initTable() {
+            Node<K,V>[] tab; int sc;
+            while ((tab = table) == null || tab.length == 0) {
+                // 如果sizeCtl<0说明正在进行创建，直接让出CPU
+                if ((sc = sizeCtl) < 0)
+                    Thread.yield(); // lost initialization race; just spin
+                // 获取锁，CAS更新sizeCtl
+                else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+                    try {
+                        // 在检查一遍在获取锁前是否有其他进行初始化
+                        if ((tab = table) == null || tab.length == 0) {
+                            // 第一次初始化时，sc为0，所以默认为DEFAULT_CAPACITY（16），后续扩容则以sc为扩容大小
+                            int n = (sc > 0) ? sc : DEFAULT_CAPACITY;       
+                            @SuppressWarnings("unchecked")
+                            Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];     // 生成数组，大小为n
+                            table = tab = nt;   
+                            sc = n - (n >>> 2);     // sc = 0.75*n
+                        }
+                    } finally {
+                        sizeCtl = sc;   // 设置下一次扩容的大小
+                    }
+                    break;  // 循环拜拜！
+                }
+            }
+            return tab;
+        }
+        ```
+        ```
+        // 当同一节点超过8个时调用此方法判断是扩容还是转树
+        private final void treeifyBin(Node<K,V>[] tab, int index) {
+            Node<K,V> b; int n, sc;
+            if (tab != null) {
+                // 如果数组长度小于MIN_TREEIFY_CAPACITY（64）进行扩容
+                if ((n = tab.length) < MIN_TREEIFY_CAPACITY)
+                    tryPresize(n << 1);     // 进入下面的扩容方法
+                // 确定索引位置不为空且为链表结构
+                else if ((b = tabAt(tab, index)) != null && b.hash >= 0) {
+                    // 锁住当前链表对象
+                    synchronized (b) {
+                        // 判断加锁前后链表对象是否更改，前后一致就把链表转为树
+                        if (tabAt(tab, index) == b) {
+                            TreeNode<K,V> hd = null, tl = null;
+                            for (Node<K,V> e = b; e != null; e = e.next) {
+                                // 先将Node转为TreeNode链接起来
+                                TreeNode<K,V> p = new TreeNode<K,V>(e.hash, e.key, e.val, null, null);
+                                if ((p.prev = tl) == null)
+                                    hd = p;
+                                else
+                                    tl.next = p;
+                                tl = p;
+                            }
+                            // new TreeBin<K,V>(hd)在这里才构建红黑树。
+                            setTabAt(tab, index, new TreeBin<K,V>(hd)); 
+                        }
+                    }
+                }
+            }
+        }
+        ```        
+        ```
+        // addCount()计数
+        private final void addCount(long x, int check) {
+            CounterCell[] as; long b, s;
+            // 判断是否存在竞争，不存在的话CAS更新BASECOUNT数量
+            // 如果在CAS更新失败，证明存在竞争，使用counterCells记录累加。
+            if ((as = counterCells) != null ||
+                !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
+                CounterCell a; long v; int m;
+                boolean uncontended = true;
+                // 1. 判断counterCells计数表是否为空
+                // 2. 如果counterCells不为空，判断counterCells随机位置的值是否为空
+                // 3. counterCells随机位置的值不为空，则对其进行CAS更新，更新失败调用fullAddCount计数
+                if (as == null || (m = as.length - 1) < 0 ||
+                    (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
+                    !(uncontended = U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
+                    fullAddCount(x, uncontended);
+                    return;
+                }
+                // 链表长度小于等于1，不需要考虑扩容
+                if (check <= 1)
+                    return;
+                // 统计ConcurrentHashMap元素个数
+                s = sumCount();
+            }
+            if (check >= 0) {
+                // 需要扩容，调用transfer()方法
+                ……
+            }
+        }        
+        ```        
+    + 扩容机制：
+         
+        扩容包括了**容量变大**和**数据迁移到新集合内**。
+        这里的扩容指初始化后对数组容量进行扩大。
+        还有协助扩容复制
+      
+        ```
+        // （待分析）
+        // 扩容方法，大小总是 2^n
+        // 传入的size是原来数组长度的2倍
+        private final void tryPresize(int size) {
+            // 如果size大于 MAXIMUM_CAPACITY（1<<30） 最大容量的一半，则用最大容量，
+            // 否则使用tableSizeFor算出来
+            int c = (size >= (MAXIMUM_CAPACITY >>> 1)) ? MAXIMUM_CAPACITY :
+                tableSizeFor(size + (size >>> 1) + 1);
+            int sc;
+            while ((sc = sizeCtl) >= 0) {
+                Node<K,V>[] tab = table; int n;
+                // 判断是否初始化
+                if (tab == null || (n = tab.length) == 0) {
+                    // 初始化一个大小为sizeCtrl和刚刚算出来的c中较大的一个大小的数组
+                    n = (sc > c) ? sc : c;
+                    // CAS更新，获取锁
+                    if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+                        try {
+                            // 判断加锁前后的对象是否一致，一致的话就初始化一个大小为n的数组，sizeCtl为0.75*n
+                            if (table == tab) {
+                                @SuppressWarnings("unchecked")
+                                Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
+                                table = nt;
+                                sc = n - (n >>> 2);
+                            }
+                        } finally {
+                            sizeCtl = sc;
+                        }
+                    }
+                }
+                // 一直扩容到c <= sizeCtl或者数组长度大于最大长度的时候就退出
+                // 一次扩容是原来长度的2^n倍
+                else if (c <= sc || n >= MAXIMUM_CAPACITY)
+                    break;
+                else if (tab == table) {
+                    int rs = resizeStamp(n);
+                    if (sc < 0) {
+                        Node<K,V>[] nt;
+                        if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
+                            sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
+                            transferIndex <= 0)
+                            break;
+                        if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
+                            transfer(tab, nt);
+                    }
+                    else if (U.compareAndSwapInt(this, SIZECTL, sc,
+                                                 (rs << RESIZE_STAMP_SHIFT) + 2))
+                        transfer(tab, null);
+                }
+            }
+        }    
+        ```
+        ```
+        // 帮助转移数据（待分析）
+        final Node<K,V>[] helpTransfer(Node<K,V>[] tab, Node<K,V> f) {
+            Node<K,V>[] nextTab; int sc;
+            if (tab != null && (f instanceof ForwardingNode) &&
+                (nextTab = ((ForwardingNode<K,V>)f).nextTable) != null) {
+                int rs = resizeStamp(tab.length);
+                while (nextTab == nextTable && table == tab &&
+                       (sc = sizeCtl) < 0) {
+                    if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
+                        sc == rs + MAX_RESIZERS || transferIndex <= 0)
+                        break;
+                    if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
+                        transfer(tab, nextTab);
+                        break;
+                    }
+                }
+                return nextTab;
+            }
+            return table;
+        }
+        ```
+        变量说明：
+        + sizeCtl：用于多线程同步的互斥变量。
+            + 当sizeCtl < 0时，表示已经有线程正在初始化哈希表或哈希表正在扩容，此时，不能再进行操作。-N代表有N-1个线程在进行扩容操作。
+            + sizeCtl == -1时，代表即将初始化。
+            + sizeCtl > 0时，代表下一次进行扩容的大小。
+        + MOVED：值为-1。代表数组扩容数据正在复制阶段。    
+        + baseCount：在没有冲突时使用的计数器。作为竞争备用，由CAS更新。存在竞争时不使用它。
+        + counterCells：用于在竞争的时候计算元素个数。值为空时，不存在竞争。
+    
+        
+    
 ___
 #### CopyOnWriteArrayList
 
