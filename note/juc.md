@@ -1,18 +1,32 @@
 # 集合与JUC笔记
 
-- [1 基础集合扫盲](#1-基础集合扫盲)
-    - [1.1 Collection](#11-Collection)
-        - [1.1.1 List](#111-List)
-- [2 JUC(java.util.concurrent)扫盲](#2-JUC(java.util.concurrent)扫盲)
-
-
-## 1 基础集合扫盲
-### 1.1 Collection
+- [基础集合扫盲](#基础集合扫盲)
+    - [Collection](#Collection)
+        - [List](#**List**)
+        - [Map](#**Map**)
+        - [Set](#**Set**)
+- [JUC(java.util.concurrent)扫盲](#JUC（java.util.concurrent）扫盲)
+    - [Atomic原子类](#Atomic原子类)
+        - [基本类型原子类](#基本类型原子类)
+        - [数组类型原子类](#数组类型原子类)
+        - [引用类型原子类](#引用类型原子类)
+        - [对象的属性修改类型](#对象的属性修改类型)
+        - [解决高并发性能问题——LongAdder/DoubleAdder](#解决高并发性能问题——LongAdder/DoubleAdder)
+    - [并发容器](#并发容器)
+        - [ConcurrentHashMap](#ConcurrentHashMap)
+        - [CopyOnWriteArrayList](#CopyOnWriteArrayList)
+        - [ConcurrentLinkedQueue](#ConcurrentLinkedQueue)
+        - [BlockingQueue](#BlockingQueue)
+        - [ConcurrentSkipListMap](#ConcurrentSkipListMap)
+    
+___
+## 基础集合扫盲
+### Collection
 
 Collection是所有集合的基类（接口）。
 Java 8支持lambda语法。新增了不少的方法。（待拓展）
 ___
-#### 1.1.1 **List**
+#### **List**
 
 List是一个有序可重复的集合，允许有null值。
 + List提供了一个特殊的迭代器`ListIterator`。
@@ -141,7 +155,7 @@ ___
 + TreeSet: 自然排序的Set，底层使用 TreeMap。加入的元素必须实现 `Comparable` 接口。
 + `Collections.synchronizedSet(Set set)`与前面一样。
 ___
-## 2 JUC(java.util.concurrent)扫盲
+## JUC（java.util.concurrent）扫盲
 
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
 
@@ -171,30 +185,30 @@ ___
     类型修饰符。作用是作为指令关键字，确保本条指令不会因编译器的优化而省略。
 
     原子性操作：简单的读取、赋值（非变量间赋值）
+   
+    1. 特点：
     
-1. 特点：
-
-    + 可见性。保证不同线程对修饰变量进行操作的可见性，即一个线程修改了某个变量的值，新的值对其他线程是立即可见的。
-    + 有序性。禁止进行指令重排序。
-    + 原子性。只能保证对单次读/写的原子性。
-
-    `synchronized`和`Lock`也能保证可见性。
-    保证同一时刻只有一个线程获取锁然后执行同步代码，并且在释放锁之前会将对变量的修改刷新到主存当中。
-
-2. 原理和实现机制（保证可见性和禁止指令重排序）
-
-    加入`volatile`关键字时，会多出一个`lock`前缀指令。
+        + 可见性。保证不同线程对修饰变量进行操作的可见性，即一个线程修改了某个变量的值，新的值对其他线程是立即可见的。
+        + 有序性。禁止进行指令重排序。
+        + 原子性。只能保证对单次读/写的原子性。
     
-    `lock`前缀指令实际上相当于一个内存屏障（也成内存栅栏），内存屏障会提供3个功能：
-    + 确保在执行到内存屏障这句指令时，在它前面的操作已经全部完成。即不会把内存屏障前面的指令排到其后面，不会把其后面的指令排到其前面。
-    + 强制对缓存的修改操作立即写入主存中。
-    + 写操作会导致其他CPU对应的缓存行失效。
+        `synchronized`和`Lock`也能保证可见性。
+        保证同一时刻只有一个线程获取锁然后执行同步代码，并且在释放锁之前会将对变量的修改刷新到主存当中。
     
-3. 应用场景
-    + 对变量的写操作不依赖于当前值。
-    + 该变量没有包含在具有其他变量的不变式中。
+    2. 原理和实现机制（保证可见性和禁止指令重排序）
     
-    只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
+        加入`volatile`关键字时，会多出一个`lock`前缀指令。
+        
+        `lock`前缀指令实际上相当于一个内存屏障（也成内存栅栏），内存屏障会提供3个功能：
+        + 确保在执行到内存屏障这句指令时，在它前面的操作已经全部完成。即不会把内存屏障前面的指令排到其后面，不会把其后面的指令排到其前面。
+        + 强制对缓存的修改操作立即写入主存中。
+        + 写操作会导致其他CPU对应的缓存行失效。
+        
+    3. 应用场景
+        + 对变量的写操作不依赖于当前值。
+        + 该变量没有包含在具有其他变量的不变式中。
+        
+        只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
 ___   
 ### Atomic原子类
 
@@ -507,9 +521,6 @@ ___
 
 ___
 #### BlockingQueue
-
-___
-#### ConcurrentLinkedQueue
 
 ___
 #### ConcurrentSkipListMap
