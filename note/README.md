@@ -9,6 +9,6 @@
 # 目录
 - [集合与并发容器](juc.md)
    - [基础集合扫盲](juc.md#基础集合扫盲)
-   - [JUC(java.util.concurrent)扫盲](#JUC（java.util.concurrent）扫盲)
+   - [JUC(java.util.concurrent)扫盲](juc.md#JUC扫盲)
       
 - [常见经典算法（待完善）](algorithm.md)
