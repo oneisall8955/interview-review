@@ -172,6 +172,7 @@ ___
 ## JUC扫盲
 
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
+需要了解`CAS`、`volatile`、`ReentrantLock`几个基础知识。
 
 1. **CAS(Compare And Swap)**
 
@@ -223,6 +224,10 @@ ___
         + 该变量没有包含在具有其他变量的不变式中。
         
         只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
+        
+3. 可重入锁 ReentrantLock
+
+(待补充)
 ___   
 ### Atomic原子类
 
@@ -1087,11 +1092,192 @@ ___
     `CopyOnWriteArrayList`中使用`COWIterator`迭代器。实现了`ListIterator`接口，仅支持遍历，不支持新增、删除、修改操作。
 ___
 #### ConcurrentLinkedQueue
+采用链表结构的、非阻塞的、线程安全的无界队列。继承`AbstractQueue`类，实现`Queue`接口。
+适合在对性能要求相对较高，同时对队列的读写存在多个线程同时进行的场景，
+即如果对队列加锁的成本较高则适合使用无锁的 ConcurrentLinkedQueue 来替代
++ 初始化
 
+    默认初始化一个链表节点`Node`，并作为队列头`head`和队列尾`tail`。`Node`为内部类，节点的所有操作都是采用CAS更新。
++ 入队
+
+    因为`ConcurrentLinkedQueue`是一个无界队列，所以在插入的时候一直都是返回`true`。
+    入队主要做了2件事：定位尾结点，采用CAS将入队节点设置为尾结点的next节点，失败则重试。
+    + 因为存在多线程插队的可能性，tail节点并不一定为尾结点。而判断是否为尾结点是当前节点的`next`节点为`null`。
+        在插入的时候采用CAS更新，直到入队成功。
+    
+    + tail的更新时机是通过p和t是否相等来判断的，即当tail节点和尾节点的距离大于等于1时，更新tail。
+    
+    ```
+    // add()方法调用offer()方法
+    public boolean offer(E e) {
+        checkNotNull(e);
+        final Node<E> newNode = new Node<E>(e);
+        
+        for (Node<E> t = tail, p = t;;) {
+            Node<E> q = p.next;
+            if (q == null) {
+                // 说明p是尾结点，CAS更新p的next节点，尝试入队。
+                // p is last node
+                if (p.casNext(null, newNode)) {
+                    // Successful CAS is the linearization point
+                    // for e to become an element of this queue,
+                    // and for newNode to become "live".
+                    // 更新tail节点，p != t是当之前的尾节点和现在插入的节点之间有一个节点时
+                    // 在并发高的情况下，p!=t很容易成立，很多时候会尝试CAS更新tail节点。
+                    if (p != t) // hop two nodes at a time
+                        casTail(t, newNode);  // Failure is OK.
+                    return true;
+                }
+                // Lost CAS race to another thread; re-read next
+            }
+            // 在多线程环境下，如果同时存在入队和出队的操作，可能出现p == q的情况
+            // 此时需要重新找新的head
+            // 如果p!=q则去寻找尾结点
+            else if (p == q)
+                // We have fallen off list.  If tail is unchanged, it
+                // will also be off-list, in which case we need to
+                // jump to head, from which all live nodes are always
+                // reachable.  Else the new tail is a better bet.
+                p = (t != (t = tail)) ? t : head;
+            else
+                // Check for tail updates after two hops.
+                p = (p != t && t != (t = tail)) ? t : q;
+        }
+    }
+    ```
++ 出队
+
+    出队操作与入队操作原理一样。通过CAS更新头节点，但并不是head节点并不一定是头节点，而是中间间隔一个元素时更新。
+
+    ```
+    public E poll() {
+        restartFromHead:
+        for (;;) {
+            // 从头开始，并获取头节点信息。
+            for (Node<E> h = head, p = h, q;;) {
+                E item = p.item;
+                // 如果头节点信息不为空，则使用CAS更新为null
+                if (item != null && p.casItem(item, null)) {
+                    // Successful CAS is the linearization point
+                    // for item to be removed from this queue.
+                    // 与入队时更新尾结点原理一样，并不是每次都去更新头节点。
+                    if (p != h) // hop two nodes at a time
+                        updateHead(h, ((q = p.next) != null) ? q : p);
+                    return item;
+                }
+                // 获取p节点的下一个节点，如果p节点的下一节点为null，则表明队列已经空了
+                else if ((q = p.next) == null) {
+                    updateHead(h, p);
+                    return null;
+                }
+                // 说明有其他线程更新了head头节点，需要获取新的头节点
+                else if (p == q)
+                    continue restartFromHead;
+                else
+                // 如果下一个元素不为空，则将头节点的下一个节点设置成头节点
+                    p = q;
+            }
+        }
+    }    
+    ```
++ 获取队列元素个数近似值：`size()`
+    
+    因为`size()`方法没有加锁，只是遍历了整个队列，遍历过程可能存在出入队的操作，所以size是一个近似值而非精准值。
++ 无界队列：因为是无界队列，在使用时需要注意内存溢出的问题。
 ___
 #### BlockingQueue
+阻塞队列，被广泛使用在“生产者-消费者”问题中，其原因是`BlockingQueue`提供了可阻塞的插入和移除的方法。
+当队列容器已满，生产者线程会被阻塞，直到队列未满；当队列容器为空时，消费者线程会被阻塞，直至队列非空时为止。
+
+`BlockingQueue`是一个接口，继承自`Queue`，所以其实现类也可以作为`Queue`的实现来使用，而 Queue 又继承自 Collection 接口。
+
+实现类有`ArrayBlockingQueue`、`LinkedBlockingQueue`、`PriorityBlockingQueue`、`DelayQueue`、
+`LinkedBlockingQueue`、`LinkedTransferQueue`、`SynchronousQueue`。主要学习前三个。
+
+___
+##### ArrayBlockingQueue
+`ArrayBlockingQueue`实现了`BlockingQueue`接口，是阻塞的**有界队列**，底层采用**数组**来实现，是一个循环数组。一旦创建则容量无法更改。
+
++ 初始化
+
+    创建`ArrayBlockingQueue`时必须指定数组大小。默认情况下不能保证线程访问队列的公平性。
+    
+    + 所谓公平性是指严格按照线程等待的绝对时间顺序，即最先等待的线程能够最先访问到`ArrayBlockingQueue`。
+    + 而非公平性则是指访问`ArrayBlockingQueue`的顺序不是遵守严格的时间顺序，
+    有可能存在，当`ArrayBlockingQueue`可以被访问时，长时间阻塞的线程依然无法访问到`ArrayBlockingQueue`。
+    + 如果保证公平性，通常会降低吞吐量。
+    
+    ```
+    // 其他构造函数的fair默认为false
+    public ArrayBlockingQueue(int capacity, boolean fair) {
+        if (capacity <= 0)
+            throw new IllegalArgumentException();
+        this.items = new Object[capacity];
+        lock = new ReentrantLock(fair);     // 可重入锁
+        notEmpty = lock.newCondition();
+        notFull =  lock.newCondition();
+    }    
+    ```
++ 入队
+
+    尝试获取锁，当得到锁之后，比较判断当前的元素个数与数组长度，当相等时，那么队列已经满了，无法插入。
+    
+    实际进行入队操作的方法为`enqueue()`，调用它的方法有`offer()`（为`add()`所调用），`put()`。：
+    ```
+    // 在调用enqueue方法时，外层已经加锁了，所以这里无需进行加锁同步操作。
+    private void enqueue(E x) {
+        // assert lock.getHoldCount() == 1;
+        // assert items[putIndex] == null;
+        final Object[] items = this.items;
+        // putIndex为下一个放置元素的位置
+        items[putIndex] = x;        
+        // 判断加入元素之后长度是不是和数组长度一样
+        // 是的话重置putIndex，从数组开头开始
+        if (++putIndex == items.length)
+            putIndex = 0;
+        count++;
+        // 唤醒等待“数组不空”线程
+        notEmpty.signal();
+    }    
+    ```
+
++ 出队
+    
+    实际出队方法为`dequeue()`方法，调用它的方法有：`poll()`，`take()`：
+
+    ```
+    // 在调用dequeue方法时，外层已经加锁了，所以这里无需进行加锁同步操作。
+    private E dequeue() {
+        // assert lock.getHoldCount() == 1;
+        // assert items[takeIndex] != null;
+        final Object[] items = this.items;
+        @SuppressWarnings("unchecked")
+        E x = (E) items[takeIndex];
+        items[takeIndex] = null;        // 把取出来的元素原来的位置设为null
+        if (++takeIndex == items.length)    // 已经取到了数组的末尾，那么就要从头开始取
+            takeIndex = 0;
+        count--;
+        if (itrs != null)
+            // 每当元素已出队时调用。因为是循环队列，需要保证迭代器定位的准确性。
+            itrs.elementDequeued();
+        // 唤醒等待“数组不满”线程
+        notFull.signal();
+        return x;
+    }   
+    ```    
+    
+___
+##### LinkedBlockingQueue
+
+___
+##### PriorityBlockingQueue
+
+___
+##### BlockingQueue的其他实现类
 
 ___
 #### ConcurrentSkipListMap
 
 ___
+
++ [返回顶部](#目录)
