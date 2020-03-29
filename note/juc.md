@@ -171,7 +171,10 @@ ___
 ___
 ## JUC扫盲
 
-`java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**和**volatile**。
+`java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**、**volatile**和**AQS(AbstractQueuedSynchronizer)**。
+`CAS`提供了一种无须加锁即可进行同步的思想，
+`volatile`提供了访问变量的可见性，在很多场景下需要使用到。
+`AQS(AbstractQueuedSynchronizer)`提供了一种实现阻塞锁和一系列依赖FIFO等待队列的同步器的框架。JUC中很多类都是基于AQS构建的，如`ReentrantLock`。
 需要了解`CAS`、`volatile`、`ReentrantLock`几个基础知识。
 
 1. **CAS(Compare And Swap)**
@@ -225,7 +228,85 @@ ___
         
         只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
         
-3. 可重入锁 ReentrantLock
+3. **ReentrantLock**
+
+`ReentrantLock`为可重入锁，实现了`Lock`接口。`ReentrantLock`和`synchronized`都是可重入锁。
++ 可重入锁：也叫做递归锁，当一个线程请求得到一个对象锁后再次请求此对象锁，可以再次得到该对象锁。
++ `ReentrantLock`包含了3个内部类：`Sync`、`NonfairSync`（非公平锁）、`FairSync`（公平锁）。
+    + `Sync`：继承了`AbstractQueuedSynchronizer`。
+    + `NonfairSync`：非公平锁，继承了`Sync`抽象类。非公平锁就是一种获取锁的抢占机制，是**随机获得锁**的，非公平锁可能使线程“饥饿”。
+    + `FairSync`：公平锁，继承了`Sync`抽象类。表示线程获取锁的顺序是按照**线程加锁的顺序**来分配的，即先来先得的**FIFO**先进先出顺序。
+    
++ `lock()`
+    
+    `lock()`方法在能获得锁就返回 true，不能的话一直等待获得锁。
+    `NonfairSync`的`lock()`方法比`FairSync`的`lock()`方法多了一处，
+    对当前锁状态尝试CAS更新，成功了则当前线程独占该锁。非公平锁就体现在这里，其他线程可能在等待获取锁仍为唤醒，而新来的线程直接抢占了锁。
+    如果抢不到锁就等待。
+    ```
+    // NonfairSync的lock()
+    final void lock() {
+        // 对当前锁的状态尝试进行CAS更新
+        if (compareAndSetState(0, 1))
+            setExclusiveOwnerThread(Thread.currentThread());
+        else
+            acquire(1);
+    }    
+    ```
+    
+    ```
+    // FairSync的lock()
+    final void lock() {
+        acquire(1);
+    }
+    ```
+    在lock()方法中调用的`acquire(1)`方法为`AbstractQueuedSynchronizer`（即AQS）类中的方法，
+    ```
+    // 判断线程能不能拿到锁，然后再看要不要线程排队
+    public final void acquire(int arg) {
+        // 尝试去拿锁 
+        if (!tryAcquire(arg) &&
+            // acquireQueued用于队列中的线程自旋地以独占且不可中断的方式获取同步状态，直到拿到锁之后再返回。
+            // 暂时先不深入了解学习
+            acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            selfInterrupt();        // 当前线程中断，搁置，仍可以继续运行
+    }   
+    ```
+    `NonfairSync`和`FairSync`分别重写了`tryAcquire()`方法，
+    `tryAcquire()`方法都是获取了当前同步状态，并用CAS尝试更新这个状态来获取锁。
+    而不同的是`FairSync`中多了`hasQueuedPredecessors()`方法，用于判断头节点是否为当前线程。
+    ```
+    // NonfairSync的tryAcquire()
+    protected final boolean tryAcquire(int acquires) {
+        return nonfairTryAcquire(acquires);
+    }    
+    ```
+    ```
+    // FairSync的tryAcquire()
+    protected final boolean tryAcquire(int acquires) {
+        final Thread current = Thread.currentThread();
+        int c = getState();
+        if (c == 0) {
+            if (!hasQueuedPredecessors() &&
+                compareAndSetState(0, acquires)) {
+                setExclusiveOwnerThread(current);
+                return true;
+            }
+        }
+        else if (current == getExclusiveOwnerThread()) {
+            int nextc = c + acquires;
+            if (nextc < 0)
+                throw new Error("Maximum lock count exceeded");
+            setState(nextc);
+            return true;
+        }
+        return false;
+    }
+    ```
++ `unlock()`：释放锁，还原状态。
++ `lockInterruptibly()`：一个可以响应中断的获取锁的方法，可以用来解决死锁问题。
+
+参考：[一行一行源码分析清楚 AbstractQueuedSynchronizer](https://www.javadoop.com/post/AbstractQueuedSynchronizer-2/ "AbstractQueuedSynchronizer")
 
 (待补充)
 ___   
@@ -1190,13 +1271,15 @@ ___
 当队列容器已满，生产者线程会被阻塞，直到队列未满；当队列容器为空时，消费者线程会被阻塞，直至队列非空时为止。
 
 `BlockingQueue`是一个接口，继承自`Queue`，所以其实现类也可以作为`Queue`的实现来使用，而 Queue 又继承自 Collection 接口。
+`BlockingQueue`不接受`null`值的插入。
 
 实现类有`ArrayBlockingQueue`、`LinkedBlockingQueue`、`PriorityBlockingQueue`、`DelayQueue`、
 `LinkedBlockingQueue`、`LinkedTransferQueue`、`SynchronousQueue`。主要学习前三个。
 
+参考：[解读Java并发队列 BlockingQueue](https://www.javadoop.com/post/java-concurrent-queue "BlockingQueue")
 ___
 ##### ArrayBlockingQueue
-`ArrayBlockingQueue`实现了`BlockingQueue`接口，是阻塞的**有界队列**，底层采用**数组**来实现，是一个循环数组。一旦创建则容量无法更改。
+`ArrayBlockingQueue`实现了`BlockingQueue`接口，满足FIFO特性，是阻塞的**有界队列**，底层采用**数组**来实现，是一个循环数组。一旦创建则容量无法更改。
 
 + 初始化
 
@@ -1268,10 +1351,229 @@ ___
     
 ___
 ##### LinkedBlockingQueue
+继承了`AbstractQueue`类，实现了`BlockingQueue`接口，满足FIFO特性，是底层基于**单向链表**实现的阻塞队列。
+可以当做无界队列使用，也可以当做有界队列来使用。
+与`ArrayBlockingQueue`相比起来具有更高的吞吐量。
 
+`ArrayBlockingQueue`队列在出队和入队时使用不同的锁，即出队入队都有各自的锁，提高了并发性。
+
++ 初始化
+
+    为了防止`LinkedBlockingQueue`容量迅速增，损耗大量内存，
+    通常在创建`LinkedBlockingQueue`对象时，会指定其大小，
+    如果未指定，容量等于`Integer.MAX_VALUE`。
+
+    ```
+    // 默认构造函数，某种意义上的无界队列
+    public LinkedBlockingQueue() { 
+        this(Integer.MAX_VALUE); 
+    }
+    // 指定大小，则为有界队列
+    public LinkedBlockingQueue(int capacity) {
+        if (capacity <= 0) throw new IllegalArgumentException();
+        this.capacity = capacity;
+        last = head = new Node<E>(null);
+    }
+    ```
++ 入队
+    
+    入队拥有自己的锁`ReentrantLock putLock`。
+    入队操作包括了：put()、offer()两种方法。两种方法的区别：
+    + put()方法如果队列满了会进入等待，直到插入成功或抛出异常，无返回值。
+    + offer()方法在插入成功时返回true，如果队列满了返回false，不进行阻塞等待或者等待指定时间。
+    
+    put()方法：
+    ```
+    public void put(E e) throws InterruptedException {
+        if (e == null) throw new NullPointerException();
+        // Note: convention in all put/take/etc is to preset local var
+        // holding count negative to indicate failure unless set.
+        // 本地变量c，默认负数为失败
+        int c = -1;
+        Node<E> node = new Node<E>(e);
+        // 插入和删除都有各自的锁
+        final ReentrantLock putLock = this.putLock;
+        // 获取当前元素计数器
+        final AtomicInteger count = this.count;
+        // 如果当前线程未被中断且锁空闲，则获取锁
+        putLock.lockInterruptibly();
+        try {
+            /*
+             * Note that count is used in wait guard even though it is
+             * not protected by lock. This works because count can
+             * only decrease at this point (all other puts are shut
+             * out by lock), and we (or some other waiting put) are
+             * signalled if it ever changes from capacity. Similarly
+             * for all other uses of count in other wait guards.
+             */
+            // 如果队列满了，当前“插入”线程阻塞等待
+            while (count.get() == capacity) {
+                notFull.await();
+            }
+            // 等到队列不满了，入队，放到链表尾部
+            enqueue(node);
+            // CAS更新元素数，c还是旧值
+            c = count.getAndIncrement();
+            // 如果队列没满，那就唤醒正在等待“插入”的线程
+            if (c + 1 < capacity)
+                notFull.signal();
+        } finally {
+            putLock.unlock();       // 释放锁
+        }
+        // 代表队列在这个元素入队前是空的（不包括head空节点），唤醒等待“获取”的线程
+        if (c == 0)
+            signalNotEmpty();
+    }
+    ```
++ 出队    
+
+    出队拥有自己的锁`ReentrantLock takeLock`。
+    head节点始终是空的，出队时把head使用下一个节点，把节点值设为null，原本的head节点自循环引用自动删除。
+    
+    出队操作包含了：`take()`和`poll()`两种方法。它们的区别是：
+    + take()方法如果队列为空则等待至队列不为空或抛出异常，并出队。
+    + poll()方法出队成功则返回队列头部元素，否则返回null。
+    
+    take()方法：
+    ```
+    public E take() throws InterruptedException {
+        E x;
+        int c = -1;
+        final AtomicInteger count = this.count; // 当前元素个数计数器
+        final ReentrantLock takeLock = this.takeLock;   
+        // 如果当前线程未被中断且锁空闲，则获取锁
+        takeLock.lockInterruptibly();
+        try {
+            // 如果队列为空，当前“获取”线程阻塞进入等待
+            while (count.get() == 0) {
+                notEmpty.await();
+            }
+            // 等到队列不为空了，出队
+            x = dequeue();
+            c = count.getAndDecrement();    // 元素减一
+            // 如果队列有至少一个元素了，唤醒等待“获取”线程
+            if (c > 1)
+                notEmpty.signal();
+        } finally {
+            takeLock.unlock();  // 释放锁
+        }
+        // 在这个 take 方法发生的时候，队列是满的，唤醒等待“插入”线程
+        if (c == capacity)
+            signalNotFull();
+        return x;
+    }    
+    ```
++ 问题：ArrayBlockingQueue和LinkedBlockingQueue的区别
 ___
 ##### PriorityBlockingQueue
+继承了`AbstractQueue`类，实现了`BlockingQueue`接口。是一个支持**优先级的无界阻塞**队列。
+采用自然排序，不允许插入null元素和不可比较的对象。
 
++ 初始化
+    
+    默认初始化一个大小为11的、采用自然排序的数组，基于数组的二叉堆来存放元素。
+    + 二叉堆：一颗完全二叉树，它非常适合用数组进行存储，
+        对于数组中的元素 a[i]，其左子节点为 a[2*i+1]，其右子节点为 a[2*i + 2]，
+        其父节点为 a[(i-1)/2]，其堆序性质为，每个节点的值都小于其左右子节点的值。
+        二叉堆中最小的值就是根节点，但是删除根节点是比较麻烦的，因为需要调整树。
+        
+    最小的元素一定是根元素，它是一棵满的树，除了最后一层，最后一层的节点从左到右紧密排列。
+
++ 自动扩容
+
+    自动扩容发生插入元素时数组空间不够的情况，在扩容之前需要先释放之前插入时加的锁`ReentrantLock`，
+    然后再进行CAS操作`allocationSpinLock`自旋锁加锁。在节点数较小的时候，数组扩容增长得快一些。
+    
+    ```
+    private void tryGrow(Object[] array, int oldCap) {
+        // 扩容是发生在插入元素的时候空间不够，在这之前已经加锁，所以需要把之前加的锁释放
+        lock.unlock(); // must release and then re-acquire main lock
+        Object[] newArray = null;
+        // 获取锁，allocationSpinLock指自旋锁分配，0是空闲，1是加锁。
+        if (allocationSpinLock == 0 &&
+            UNSAFE.compareAndSwapInt(this, allocationSpinLockOffset,
+                                     0, 1)) {
+            try {
+                // 如果节点个数小于 64，那么增加的 oldCap + 2 的容量
+                // 如果节点数大于等于 64，那么增加 oldCap 的一半
+                // 所以节点数较小时，增长得快一些
+                int newCap = oldCap + ((oldCap < 64) ?
+                                       (oldCap + 2) : // grow faster if small
+                                       (oldCap >> 1));
+                if (newCap - MAX_ARRAY_SIZE > 0) {    // possible overflow 可能溢出
+                    int minCap = oldCap + 1;
+                    if (minCap < 0 || minCap > MAX_ARRAY_SIZE)
+                        throw new OutOfMemoryError();
+                    newCap = MAX_ARRAY_SIZE;
+                }
+                // queue!=array说明有其他线程为其分配了其他空间
+                if (newCap > oldCap && queue == array)
+                    newArray = new Object[newCap];  // 分配一个新的大数组
+            } finally {
+                allocationSpinLock = 0; // 释放锁
+            }
+        }
+        // 如果有其他的线程也在做扩容的操作
+        if (newArray == null) // back off if another thread is allocating
+            Thread.yield();
+        // 重新获取锁    
+        lock.lock();
+        // 将原来数组中的元素复制到新分配的大数组中
+        if (newArray != null && queue == array) {
+            queue = newArray;
+            System.arraycopy(array, 0, newArray, 0, oldCap);
+        }
+    }    
+    ```
++ 插入数据(待学习)
+    
+    使用`add()/put()`方法进行插入数据，其中直接调用了`offer()`方法。
+    
+    ```
+    public boolean offer(E e) {
+        if (e == null)
+            throw new NullPointerException();
+        final ReentrantLock lock = this.lock;
+        lock.lock();    // 加锁
+        int n, cap;
+        Object[] array;
+        // 如果当前队列中的元素个数大于等于数组的大小，那么需要扩容了
+        while ((n = size) >= (cap = (array = queue).length))
+            tryGrow(array, cap);
+        try {
+            Comparator<? super E> cmp = comparator;
+            // 节点添加到二叉堆中
+            if (cmp == null)
+                siftUpComparable(n, e, array);
+            else
+                siftUpUsingComparator(n, e, array, cmp);
+            // 更新 size
+            size = n + 1;
+            // 唤醒等待的读线程
+            notEmpty.signal();
+        } finally {
+            lock.unlock();
+        }
+        return true;
+    }
+    ```
+    ```
+    // 待学习
+    // 将数据 x 插入到数组 array 的位置 k 处，然后再调整树
+    private static <T> void siftUpComparable(int k, T x, Object[] array) {
+        Comparable<? super T> key = (Comparable<? super T>) x;
+        while (k > 0) {
+            // 二叉堆中a[k]节点的父节点位置
+            int parent = (k - 1) >>> 1;
+            Object e = array[parent];
+            if (key.compareTo((T) e) >= 0)
+                break;
+            array[k] = e;   // 父节点比子节点小
+            k = parent;
+        }
+        array[k] = key;
+    }    
+    ``` 
 ___
 ##### BlockingQueue的其他实现类
 
