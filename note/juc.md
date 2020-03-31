@@ -1274,7 +1274,7 @@ ___
 `BlockingQueue`不接受`null`值的插入。
 
 实现类有`ArrayBlockingQueue`、`LinkedBlockingQueue`、`PriorityBlockingQueue`、`DelayQueue`、
-`LinkedBlockingQueue`、`LinkedTransferQueue`、`SynchronousQueue`。主要学习前三个。
+`LinkedTransferQueue`、`SynchronousQueue`。主要学习前三个。
 
 参考：[解读Java并发队列 BlockingQueue](https://www.javadoop.com/post/java-concurrent-queue "BlockingQueue")
 ___
@@ -1544,21 +1544,20 @@ ___
             Comparator<? super E> cmp = comparator;
             // 节点添加到二叉堆中
             if (cmp == null)
-                siftUpComparable(n, e, array);
+                siftUpComparable(n, e, array);  // 默认比较器
             else
-                siftUpUsingComparator(n, e, array, cmp);
+                siftUpUsingComparator(n, e, array, cmp);    // 自定义比较器
             // 更新 size
             size = n + 1;
             // 唤醒等待的读线程
             notEmpty.signal();
         } finally {
-            lock.unlock();
+            lock.unlock();  // 释放锁
         }
         return true;
     }
     ```
     ```
-    // 待学习
     // 将数据 x 插入到数组 array 的位置 k 处，然后再调整树
     private static <T> void siftUpComparable(int k, T x, Object[] array) {
         Comparable<? super T> key = (Comparable<? super T>) x;
@@ -1568,15 +1567,231 @@ ___
             Object e = array[parent];
             if (key.compareTo((T) e) >= 0)
                 break;
-            array[k] = e;   // 父节点比子节点小
+            array[k] = e;   // 父节点要比子节点小
             k = parent;
         }
         array[k] = key;
     }    
-    ``` 
+    ```
++ 出队
+    
+    出队操作包含了：`take()`和`poll()`。它们的区别是：
+    + `take()`方法在队列为空时阻塞等待，直到出队成功。
+    + `poll()`方法直接返回出队操作，不会阻塞等待或等待指定时间。
+    
+    ```
+    public E take() throws InterruptedException {
+        final ReentrantLock lock = this.lock;
+        lock.lockInterruptibly();
+        E result;
+        try {
+            // 出队
+            while ( (result = dequeue()) == null)
+                notEmpty.await();
+        } finally {
+            lock.unlock();
+        }
+        return result;
+    }
+    ```
+    `take()`和`poll()`调用了`dequeue()`方法：
+    ```
+    private E dequeue() {
+        int n = size - 1;
+        if (n < 0)
+            return null;
+        else {
+            Object[] array = queue;
+            E result = (E) array[0];    // 队头，用于返回
+            E x = (E) array[n];         // 队尾元素先取出    
+            array[n] = null;            // 队尾置空
+            Comparator<? super E> cmp = comparator;
+            if (cmp == null)
+                siftDownComparable(0, x, array, n);     // 删除，调整二叉堆
+            else
+                siftDownUsingComparator(0, x, array, n, cmp);
+            size = n;
+            return result;
+        }
+    }
+    ```
+    因为二叉堆中，根节点为最小元素，所以出队时直接取根节点，对应的是数组的第一个元素，然后其他节点进行调整。
 ___
 ##### BlockingQueue的其他实现类
+这里简单介绍一下实现BlockingQueue的其他几个类，`SynchronousQueue`、`LinkedTransferQueue`、`DelayQueue`。
+###### SynchronousQueue
+`SynchronousQueue`是个特殊的队列——同步队列。这里的同步是指读线程和写线程需要同步。
+当一个线程往队列里写入一个元素时，不会立即返回，需要等待另一个线程将这个元素取走。
+即一个读线程操作需要一个写线程操作匹配，反之亦然。
+    
+实现了`BlockingQueue`接口，`SynchronousQueue`是一个虚队列，没有存储元素的空间。对线程进行排队，不储存元素。
+它在线程池的实现类`ThreadPoolExecutor`中得到了应用。
+    
+因为没有元素存储空间，`SynchronousQueue`避免使用`add()`/`offer()`/`peek()`（只读取不移除，即返回null）等立即返回的方法，也不能被迭代。
+    
++ 初始化
+    
+    初始化时可以指定**公平模式**(队列)和**非公平模式**(栈)。默认为非公平模式。
+    ```
+    public SynchronousQueue(boolean fair) {
+        // 公平模式：TransferQueue，遵循FIFO
+        // 非公平模式：TransferStack 
+        transferer = fair ? new TransferQueue() : new TransferStack();
+    }
+    ```
+    其中`TransferQueue`和`TransferStack`为两个内部类，继承自内部类`Transferer`。
+    
+    ```
+    abstract static class Transferer<E> {
+        /**
+         * Performs a put or take.
+         *
+         * @param e if non-null, the item to be handed to a consumer;
+         *          e 不为 null，元素从生产者转移到消费者
+         *          if null, requests that transfer return an item offered by producer.
+         *          e 为 null，消费者等待生产者提供元素
+         * @param timed if this operation should timeout
+         * @param nanos the timeout, in nanoseconds
+         * @return if non-null, the item provided or received; if null,
+         *         the operation failed due to timeout or interrupt --
+         *         the caller can distinguish which of these occurred
+         *         by checking Thread.interrupted.
+         */
+        abstract E transfer(E e, boolean timed, long nanos);
+    }    
+    ```
++ 出入队    
+    + 公平模式下的`transfer()`方法
+        + 当调用这个方法时，如果队列是空的，或者队列中的节点和当前的线程操作类型一致
+            （如当前操作是`put`操作，而队列中的元素也都是写线程）。
+            这种情况下，将当前线程加入到等待队列即可。
+        + 如果队列中有等待节点，而且与当前操作可以匹配
+            （如队列中都是读操作线程，当前线程是写操作线程，反之亦然）。
+            这种情况下，匹配等待队列的队头，出队，返回相应数据。 
+    + 非公平模式下的`transfer()`方法
+        + 当调用这个方法时，如果队列是空的，或者队列中的节点和当前的线程操作类型一致
+            （如当前操作是`put`操作，而栈中的元素也都是写线程）。
+            这种情况下，将当前线程加入到等待栈中，等待配对。然后返回相应的元素，
+            或者如果被取消了的话，返回null。
+        + 如果栈中有等待节点，而且与当前操作可以匹配
+            （如栈里面都是读操作线程，当前线程是写操作线程，反之亦然）。
+            将当前节点压入栈顶，和栈中的节点进行匹配，然后将这两个节点出栈。
+            配对和出栈的动作其实也不是必须的，因为下面的一条会执行同样的事情。
+        + 如果栈顶是进行匹配而入栈的节点，帮助其进行匹配并出栈，然后再继续操作。
+    
++ 公平模式（FIFO）在竞争下支持更高的吞吐量，非公平模式（LIFO）在一般的应用中保证更高的线程局部性
+___
+###### LinkedTransferQueue（待完善）  
+实现了`TransferQueue`接口。是基于**单链表**结构的**阻塞无界**队列。遵循FIFO。内部节点可以视为“生产者-消费者”，类似于`SynchronousQueue`。
 
+`TransferQueue`接口继承了`BlockingQueue`接口并进行了扩充。增加了`tryTransfer()`和`transfer()`等方法
+
++ 初始化：默认构造函数是不做任何操作的。在插入数据的时候，才会生成链表结构存储，没有做长度限制，是无界队列。
++ 入队和出队
+
+    入队和出队操作，与4个`NOW`、`ASYNC`、`SYNC`和`TIMED`常量和1个`xfer()`方法有关。
+    + `NOW`：即时操作，可能失败，不会阻塞调用线程。
+        + `poll()`：获取并移除队首元素，如果队列为空，直接返回null。
+        + `tryTransfer()`：尝试将元素传递给消费者，如果没有等待的消费者，则立即返回false，也不会将元素入队。
+    + `ASYNC`：异步操作，一定成功。    
+        + `offer()`：插入指定元素至队尾，由于是无界队列，所以会立即返回，返回值为true。
+        + `put()`：插入指定元素至队尾，由于是无界队列，所以会立即返回，无返回值。
+        + `add()`：插入指定元素至队尾，由于是无界队列，所以会立即返回，返回值为true。
+    + `SYNC`：同步操作，阻塞调用线程。
+        + `transfer()`：阻塞直到出现一个消费者线程。
+        + `take()`：从队首移除一个元素，如果队列为空，则阻塞线程。
+    + `TIMED`：限时同步操作，限时阻塞调用线程。
+        + `poll()`
+        + `tryTransfer()`
+    以上的操作通过4个常量传入调用`xfer()`。
+    ```
+    private static final int NOW   = 0; // for untimed poll, tryTransfer
+    private static final int ASYNC = 1; // for offer, put, add
+    private static final int SYNC  = 2; // for transfer, take
+    private static final int TIMED = 3; // for timed poll, tryTransfer
+    ```
+    模拟入队出队过程分析一下这个方法，在代码中标出行数编号用于表示过程：
+    + 第一次入队，队列为空时，使用`put/add`方法。
+        + (1)判断头节点是否为空，头为空 -> (10)插入不为NOW -> (11)插入新数据生成新节点 
+            -> (12)第一个元素所以作为头节点 -> (15)插入成功，并且是异步操作，返回
+    + 第二次入队
+        + (1)判断头节点是否为空，头不为空 -> (2)判断节点是否匹配过，没有匹配 
+            -> (3)和头节点是同类型节点，匹配并跳出循环 -> (10)插入不为NOW -> (11)插入新数据生成新节点 
+            -> (12)追加到头节点后 -> (15)插入成功，并且是异步操作，返回
+    + 第三次入队 和第二次入队一致。
+    + 第一次出队，此时有三个线程在等待消费。
+        + (1)判断头节点是否为空，头不为空 -> (2)判断节点是否匹配过，第一个节点没有被匹配过因为匹配过的节点item为null 
+            -> (4)设置头节点为null，如果没有其他线程竞争，设置成功 
+            -> (5)因为头部已经被改为null了 p!=h 
+            -> (8)尝试唤醒匹配节点的线程（因为是异步的，所以没有等待线程），出队，返回数据
+    + 第二次出队，（待完善）  
+    ```
+    // haveData在入队时为true，出队时为false
+    private E xfer(E e, boolean haveData, int how, long nanos) {
+        // 不允许插入null值
+        if (haveData && (e == null))
+            throw new NullPointerException();
+        Node s = null;                        // the node to append, if needed
+
+        retry:
+        for (;;) {                            // restart on append race
+            // 匹配队列头部（第一个节点）
+            // 如果是第一次插入，for循环在插入成功后才进入
+            for (Node h = head, p = h; p != null;) { // find & match first node     // 1
+                // 判断节点类型，取节点值
+                boolean isData = p.isData;
+                Object item = p.item;
+                // 判断节点是否匹配匹配过
+                if (item != p && (item != null) == isData) { // unmatched           // 2
+                    // 如果是同个类型的节点就不能匹配
+                    if (isData == haveData)   // can't match                        // 3
+                        break;
+                    // 当队列中已经有写操作在等待的时候，有读操作请求，把它匹配第一个写操作
+                    // 设置头节点为null
+                    if (p.casItem(item, e)) { // match                              // 4
+                        // 
+                        for (Node q = p; q != h;) {                                 // 5
+                            Node n = q.next;  // update by 2 unless singleton   
+                            // 判断头节点是否已经被其他线程取走
+                            // 如果还没有，那就设置链表头，
+                            // 如果副本p的下个节点有值，那就用其下个节点
+                            // 如果没有，
+                            if (head == h && casHead(h, n == null ? q : n)) {       // 6
+                                h.forgetNext();
+                                break;
+                            }                 // advance and retry
+                            if ((h = head)   == null ||
+                                (q = h.next) == null || !q.isMatched())             // 7
+                                break;        // unless slack < 2
+                        }
+                        // 唤醒匹配的线程
+                        LockSupport.unpark(p.waiter);                               // 8
+                        // 出队，返回数据
+                        return LinkedTransferQueue.<E>cast(item);
+                    }
+                }
+                Node n = p.next;                                                    // 9
+                p = (p != n) ? n : (h = head); // Use head if p offlist
+            }
+            // 判断是否为即使操作
+            if (how != NOW) {                 // No matches available               // 10
+                // 
+                if (s == null)                                                      
+                    s = new Node(e, haveData);                                      // 11
+                // 尝试追加节点
+                Node pred = tryAppend(s, haveData);                                 // 12
+                if (pred == null)                                                   // 13
+                    continue retry;           // lost race vs opposite mode
+                // 判断是否为异步操作
+                if (how != ASYNC)                                                   
+                    return awaitMatch(s, pred, e, (how == TIMED), nanos);           // 14
+            }
+            return e; // not waiting                                                // 15
+        }
+    }    
+    ```
+___
+###### DelayQueue
 ___
 #### ConcurrentSkipListMap
 
