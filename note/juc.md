@@ -1467,7 +1467,9 @@ ___
 ___
 ##### PriorityBlockingQueue
 继承了`AbstractQueue`类，实现了`BlockingQueue`接口。是一个支持**优先级的无界阻塞**队列。
-采用自然排序，不允许插入null元素和不可比较的对象。
+是一个阻塞的`PriorityQueue`（优先级队列）。
+采用自然排序，不允许插入null元素和不可比较的对象。优先级体现在`Comparable`比较器上。
+
 
 + 初始化
     
@@ -1525,7 +1527,7 @@ ___
         }
     }    
     ```
-+ 插入数据(待学习)
++ 插入数据
     
     使用`add()/put()`方法进行插入数据，其中直接调用了`offer()`方法。
     
@@ -1681,7 +1683,7 @@ ___
     
 + 公平模式（FIFO）在竞争下支持更高的吞吐量，非公平模式（LIFO）在一般的应用中保证更高的线程局部性
 ___
-###### LinkedTransferQueue（待完善）  
+###### LinkedTransferQueue
 实现了`TransferQueue`接口。是基于**单链表**结构的**阻塞无界**队列。遵循FIFO。内部节点可以视为“生产者-消费者”，类似于`SynchronousQueue`。
 
 `TransferQueue`接口继承了`BlockingQueue`接口并进行了扩充。增加了`tryTransfer()`和`transfer()`等方法
@@ -1711,20 +1713,40 @@ ___
     private static final int TIMED = 3; // for timed poll, tryTransfer
     ```
     模拟入队出队过程分析一下这个方法，在代码中标出行数编号用于表示过程：
-    + 第一次入队，队列为空时，使用`put/add`方法。
-        + (1)判断头节点是否为空，头为空 -> (10)插入不为NOW -> (11)插入新数据生成新节点 
-            -> (12)第一个元素所以作为头节点 -> (15)插入成功，并且是异步操作，返回
+    + 第一次入队，队列为空时，使用`transfer()`方法。
+        + → (1)判断头节点是否为空，头为空 
+        + → (10)插入不为NOW 
+        + → (11)插入新数据生成新节点 
+        + → (12)第一个元素所以作为头节点 
+        + → (14)阻塞该线程，返回（如果是ASYNC的话则 -> (15)插入成功）
     + 第二次入队
-        + (1)判断头节点是否为空，头不为空 -> (2)判断节点是否匹配过，没有匹配 
-            -> (3)和头节点是同类型节点，匹配并跳出循环 -> (10)插入不为NOW -> (11)插入新数据生成新节点 
-            -> (12)追加到头节点后 -> (15)插入成功，并且是异步操作，返回
+        + → (1)判断头节点是否为空，头不为空 
+        + → (2)判断节点是否匹配过，没有匹配 
+        + → (3)和头节点是同类型节点，匹配并跳出循环 
+        + → (10)插入不为NOW 
+        + → (11)插入新数据生成新节点 
+        + → (12)追加到头节点后
+        + → (14)阻塞该线程，返回
     + 第三次入队 和第二次入队一致。
-    + 第一次出队，此时有三个线程在等待消费。
-        + (1)判断头节点是否为空，头不为空 -> (2)判断节点是否匹配过，第一个节点没有被匹配过因为匹配过的节点item为null 
-            -> (4)设置头节点为null，如果没有其他线程竞争，设置成功 
-            -> (5)因为头部已经被改为null了 p!=h 
-            -> (8)尝试唤醒匹配节点的线程（因为是异步的，所以没有等待线程），出队，返回数据
-    + 第二次出队，（待完善）  
+    + 第一次出队，此时有三个线程在等待消费，使用`take()`。
+        + → (1)判断头节点是否为空，头不为空
+        + → (2)判断节点是否匹配过，第一个节点没有被匹配过因为匹配过的节点item为null 
+        + → (4)设置头节点为null，如果没有其他线程竞争，设置成功 
+        + → (5)因为头部已经被改为null了 p!=h 
+        + → (8)尝试唤醒匹配节点的线程，出队，返回数据。
+                唤醒的线程会把原本头节点值设置为自身（this），当前结点的等待线程为null。
+    + 第二次出队：
+        + → (1)判断头节点是否为空，头不为空
+        + → (2)判断节点是否匹配过，head已经匹配过了 
+        + → (9)找下一个节点，继续循环
+        + → (1)(2)判断节点是否匹配过,head.next没有匹配过
+        + → (4)设置节点item为null，如果没有其他线程竞争，设置成功 
+        + → (5)此时p为head.next，q!=h
+        + → (6)如果p.next不为空且head还没改变，修改头节点为p.next
+        + → (8)尝试唤醒匹配节点的线程，出队，返回数据。
+                唤醒的线程会把原本头节点值设置为自身（this），当前结点的等待线程为null。
+    + 第三次出队，类似。           
+            
     ```
     // haveData在入队时为true，出队时为false
     private E xfer(E e, boolean haveData, int how, long nanos) {
@@ -1752,10 +1774,9 @@ ___
                         // 
                         for (Node q = p; q != h;) {                                 // 5
                             Node n = q.next;  // update by 2 unless singleton   
-                            // 判断头节点是否已经被其他线程取走
-                            // 如果还没有，那就设置链表头，
-                            // 如果副本p的下个节点有值，那就用其下个节点
-                            // 如果没有，
+                            // 一次性更新2步
+                            // head -> p -> n 变成 p -> n(head)
+                            // 原本head节点自引用等待回收
                             if (head == h && casHead(h, n == null ? q : n)) {       // 6
                                 h.forgetNext();
                                 break;
@@ -1792,9 +1813,218 @@ ___
     ```
 ___
 ###### DelayQueue
+`DelayQueue<E extends Delayed>`的队列元素需要实现`Delayed`接口。
+属于无界队列。
+数据存储采用`PriorityQueue`（优先级队列），队列元素按照到期时间排序，而非入队顺序。
+它提供了在指定时间才能获取队列元素的功能。
++ `Delayed`接口
+队列元素需要实现`getDelay(TimeUnit unit)`方法和`compareTo(Delayed o)`方法, 
+`getDelay`定义了剩余到期时间，
+`compareTo`方法定义了元素排序规则，注意，元素的排序规则影响了元素的获取顺序。
++ 入队：不会造成阻塞。按照优先级排序。
++ 出队：如果生产者未到期，则需要消费者等待，直到生产者到期被消费者消费。
+    如果生产者到期时，还没有消费者在等待，则该生产者延期等待。
+    所以消费者线程的数量要够，处理任务的速度要快。
+    否则，队列中的到期元素无法被及时取出并处理，造成任务延期、队列元素堆积等情况
++ 遍历：实现了`Iterator`接口，但遍历顺序不保证是元素的实际存放顺序。
 ___
 #### ConcurrentSkipListMap
+`ConcurrentSkipListMap`是线程安全的有序的哈希表。实现了`ConcurrentNavigableMap`接口，是基于**跳表**结构实现。
+利用CAS操作实现非阻塞读/写/删除的有序key的map。它的思想为**用空间换时间**。
 
++ 结构
+    
+    `ConcurrentSkipListMap`采用`HeadIndex`内部类作存储结构，继承自内部类`Index`。
+    整体跳表的结构为`HeadIndex`，包括了当前层数和每层的结构。
+    ```
+    static final class HeadIndex<K,V> extends Index<K,V> {
+        final int level;
+        HeadIndex(Node<K,V> node, Index<K,V> down, Index<K,V> right, int level) {
+            super(node, down, right);
+            this.level = level;
+        }
+    }    
+    ```
+    `Index`是每层跳表的结构，包含了节点和对应的下层Index。
+    ```
+    static class Index<K,V> {
+        final Node<K,V> node;
+        final Index<K,V> down;
+        volatile Index<K,V> right;
+        ...
+    }
+    ```
+
++ 初始化
+    
+    默认初始化一个自然排序的比较器并生成一个特殊标志的跳表头节点，层数为第一层，其他都为null。
+    第一层包含了所有元素，上一层数据是下一层数据的子集。层次越高，跳跃性越大，包含的数据越少。
+    head -> HeadIndex(level:1) -> Node(value: BASE_HEADER)
+    
++ 插入
+
+    插入主要调用`doPut()`方法：
+    主要简单可以分为几个步骤：
+    + 找到新增元素key的前继节点
+    + 从第一层Index开始遍历，如果key > n.key 继续向右，如果key == n.key，那就替换，否则向下
+    + 逐层以此规律遍历直到最底层插入。
+    + 如果过程中需要增加索引层，搞个HeadIndex往下链接到Index直到最下层插入数据。
+    
+    ```doPut
+    private V (K key, V value, boolean onlyIfAbsent) {
+        Node<K,V> z;             // added node
+        if (key == null)
+            throw new NullPointerException();
+        Comparator<? super K> cmp = comparator;
+        outer: for (;;) {
+            // 找key对应的前继结点b，b的next节点n
+            for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
+                // 判断n是否为空，如果n为空，跳过if语句
+                // 如果n不为空
+                if (n != null) {
+                    Object v; int c;
+                    Node<K,V> f = n.next;
+                    // 如果存在条件竞争，重新开始循环
+                    if (n != b.next)               // inconsistent read
+                        break;
+                    // 如果n已经被删除了，调用helpDelete帮忙删除，重新开始循环
+                    if ((v = n.value) == null) {   // n is deleted
+                        n.helpDelete(b, f);
+                        break;
+                    }
+                    // 值为null，说明b已经被删除了
+                    if (b.value == null || v == n) // b is deleted
+                        break;
+                    // 如果key大于n.key则进入if语句，继续往后遍历
+                    if ((c = cpr(cmp, key, n.key)) > 0) {
+                        b = n;
+                        n = f;
+                        continue;
+                    }
+                    // key和n.key相等，直接赋值，采用CAS更新
+                    if (c == 0) {
+                        if (onlyIfAbsent || n.casValue(v, value)) {
+                            @SuppressWarnings("unchecked") V vv = (V)v;
+                            return vv;
+                        }
+                        // 竞争失败，重新来过
+                        break; // restart if lost race to replace value
+                    }
+                    // else c < 0; fall through
+                }
+
+                z = new Node<K,V>(key, value, n);
+                // 把新节点插入b.next
+                if (!b.casNext(n, z))
+                    break;         // restart if lost race to append to b
+                break outer;
+            }
+        }
+        // 生成一个随机数种子
+        int rnd = ThreadLocalRandom.nextSecondarySeed();
+        // if为true时需要增加层数
+        if ((rnd & 0x80000001) == 0) { // test highest and lowest bits
+            int level = 1, max;
+            while (((rnd >>>= 1) & 1) != 0)
+                ++level;
+            // 上面获取到的level为新的层数    
+            Index<K,V> idx = null;
+            HeadIndex<K,V> h = head;
+            // 新层数没有超过最大值（head的level为最大层值）
+            if (level <= (max = h.level)) {
+                // 链接level个垂直的Index，idx最终指向最高层的Index节点
+                for (int i = 1; i <= level; ++i)
+                    idx = new Index<K,V>(z, idx, null);
+            }
+            // 新层数超过了最大层数
+            else { // try to grow by one level
+                // 新层数 = 最大层数 + 1，重置level
+                level = max + 1; // hold in array and later pick the one to use
+                // 生成一个Index结点数组,idxs[0]不会使用
+                @SuppressWarnings("unchecked")Index<K,V>[] idxs =
+                    (Index<K,V>[])new Index<?,?>[level+1];
+                for (int i = 1; i <= level; ++i)
+                    idxs[i] = idx = new Index<K,V>(z, idx, null);
+                // 生成新的HeadIndex结点    
+                for (;;) {
+                    h = head;
+                    int oldLevel = h.level;     // 原最大层数
+                    // 有其他线程对index层进行增加操作，不做了
+                    if (level <= oldLevel) // lost race to add level
+                        break;
+                    HeadIndex<K,V> newh = h;
+                    // 这里的 oldbase 就是BASE_HEADER
+                    Node<K,V> oldbase = h.node; 
+                    // 增加一层HeadIndex，把新的头链接到原来的头上，形成一条索引链
+                    for (int j = oldLevel+1; j <= level; ++j)
+                        newh = new HeadIndex<K,V>(oldbase, newh, idxs[j], j);
+                    // 再CAS更新头节点，形成新的headIndex
+                    if (casHead(h, newh)) {
+                        h = newh;
+                        // 这里的 idx 上从上往下第二层的 index 节点 level 也变成的 第二
+                        idx = idxs[level = oldLevel];
+                        break;
+                    }
+                }
+            }
+            // 链接各层的各个HeadIndex和Index节点
+            // find insertion points and splice in
+            splice: for (int insertionLevel = level;;) {
+                int j = h.level;
+                for (Index<K,V> q = h, r = q.right, t = idx;;) {
+                    // 节点都被删除了，那就退出吧
+                    if (q == null || t == null)
+                        break splice;
+                    if (r != null) {
+                        // 向右遍历，和右边的节点对比，如果当前key小于右边的key，那就继续向右
+                        Node<K,V> n = r.node;
+                        // compare before deletion check avoids needing recheck
+                        int c = cpr(cmp, key, n.key);
+                        // 帮助删除
+                        if (n.value == null) {
+                            if (!q.unlink(r))
+                                break;
+                            r = q.right;
+                            continue;
+                        }
+                        if (c > 0) {
+                            q = r;
+                            r = r.right;
+                            continue;
+                        }
+                    }
+                    // 到这证明 key < n.key
+                    if (j == insertionLevel) {
+                        if (!q.link(r, t))
+                            // 插入竞争失败
+                            break; // restart
+                        if (t.node.value == null) {
+                            // node已经被删除了
+                            // 通过findPredecessor清理index层, findNode清理node层
+                            findNode(key);
+                            break splice;
+                        }
+                        // 当前第index层添加完成，为下一层index做准备
+                        if (--insertionLevel == 0)
+                            break splice;
+                    }
+
+                    // 简单理解：当前层的index都添加完成了，那就做下一层
+                    if (--j >= insertionLevel && j < level)
+                        t = t.down;
+                    q = q.down;     // 往下查
+                    r = q.right;
+                }
+            }
+        }
+        return null;
+    }
+    ```      
++ 删除：`doRemove()`方法，在删除时，如果是非索引节点，则在待删除节点和next节点中间插入一个null标记节点，
+    然后改变next节点的前驱节点，使待删除节点和标记节点一起等待垃圾回收。
+    如果是索引节点，在上面的过程之后会调用findPredecessor去接触待删除节点上的index节点的引用，最后一起被清理。
++ 查找：从左往右，从上到下，逐步找到对应key。
++ 问题：
 ___
 
 + [返回顶部](#目录)
