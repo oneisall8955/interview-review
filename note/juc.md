@@ -618,7 +618,7 @@ JDK提供的并发容器大部分存在于`java.util.concurrent`包。以下先�
 + ConcurrentSkipListMap
 ___
 #### ConcurrentHashMap
-由于`Hashtable`在操作时使用`synchronized`对整个对象进行加锁（锁住了整个Hash表），导致`ashtable`效率低下。而`HashMap`为非线程安全。
+由于`Hashtable`在操作时使用`synchronized`对整个对象进行加锁（锁住了整个Hash表），导致`Hashtable`效率低下。而`HashMap`为非线程安全。
 在JDK 1.5到1.7版本中，Java使用了**分段锁机制**实现`ConcurrentHashMap`。
 在JDK 1.8版本中，采用了`CAS + synchronized`代替`Segment + ReentrantLock`实现。
 此处对1.8版本进行源码学习。
