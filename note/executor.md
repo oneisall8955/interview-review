@@ -288,14 +288,28 @@ ___
 ### Executors
 
 #### Executors提供的线程池创建方法
-Executors提供了4种既定的线程池创建方法，但不建议这么使用，而是通过 ThreadPoolExecutor 构造函数的方式：
-+ FixedThreadPool 和 SingleThreadExecutor ： 允许请求的队列长度为 Integer.MAX_VALUE,可能堆积大量的请求，从而导致 OOM。
-+ CachedThreadPool 和 ScheduledThreadPool ： 允许创建的线程数量为 Integer.MAX_VALUE ，可能会创建大量线程，从而导致 OOM。
+Executors提供了3种既定的线程池创建方法，但不建议这么使用，而是通过`ThreadPoolExecutor`构造函数的方式：
++ `Executors.newCachedThreadPool()`：无限线程池。
++ `Executors.newFixedThreadPool(nThreads)`：创建固定大小的线程池。
++ `Executors.newSingleThreadExecutor()`：创建单个线程的线程池。
+
+不建议使用的原因：
++ `FixedThreadPool`和`SingleThreadExecutor`： 允许请求的队列长度为`Integer.MAX_VALUE`,可能堆积大量的请求，从而导致OOM。
++ `CachedThreadPool`和`ScheduledThreadPool`： 允许创建的线程数量为`Integer.MAX_VALUE`，可能会创建大量线程，从而导致OOM。
 
 1. FixedThreadPool 
 
+    可重用固定线程数的线程池。采用指定`nThreads`作为线程数，`corePoolSize`和`maximumPoolSize`都为`nThreads`。
+    
+    由于使用无界队列时`maximumPoolSize`将是一个无效参数，因为不可能存在任务队列满的情况。不会出现需要拒绝策略的情况。
+    在任务很多的时候，容易出现OOM（内存溢出）。
+    
 2. SingleThreadExecutor 
 
+    只有一个线程的线程池。`corePoolSize`和`maximumPoolSize`都为1。和FixedThreadPool有一样的问题。
+    
 3. CachedThreadPool 
 
+    会根据需要创建新线程的线程池。`corePoolSize`为0，`maximumPoolSize`为`Integer.MAX_VALUE`。
+    如果提交速度高于处理速度就会不断创建新的线程。极端情况下，这样会导致耗尽CPU和内存资源，从而导致OOM。
 ___ 
