@@ -271,10 +271,14 @@ ___
                     + 已满。执行拒绝策略。（实际线程数量 > maximumPoolSize）
 
 + 设置合理的线程池大小
-
-    一般是根据实际情况去对设置不同的大小，简单地可以套用一个比较好的公式：
     
-    线程线程数量 = CPU数量 * 目标CPU的使用率 * (任务等待时间/任务计算时间)
+    + CPU 密集型任务(N+1)： 这种任务消耗的主要是 CPU 资源，可以将线程数设置为 N（CPU 核心数）+1，
+                    比 CPU 核心数多出来的一个线程是为了防止线程偶发的缺页中断，
+                    或者其它原因导致的任务暂停而带来的影响。一旦任务暂停，CPU 就会处于空闲状态，
+                    而在这种情况下多出来的一个线程就可以充分利用 CPU 的空闲时间。
+    + I/O 密集型任务(2N)： 这种任务应用起来，系统会用大部分的时间来处理 I/O 交互，
+            而线程在处理 I/O 的时间段内不会占用 CPU 来处理，这时就可以将 CPU 交出给其它线程使用。
+            因此在 I/O 密集型任务的应用中，我们可以多配置一些线程，具体的计算方法是 2N。
 
 + 关闭线程池：`shutdown()`（等待全部执行完成）和`shutdownNow()`（立即停止）
 ___ 
@@ -282,8 +286,16 @@ ___
 
 ___
 ### Executors
+
+#### Executors提供的线程池创建方法
 Executors提供了4种既定的线程池创建方法，但不建议这么使用，而是通过 ThreadPoolExecutor 构造函数的方式：
 + FixedThreadPool 和 SingleThreadExecutor ： 允许请求的队列长度为 Integer.MAX_VALUE,可能堆积大量的请求，从而导致 OOM。
 + CachedThreadPool 和 ScheduledThreadPool ： 允许创建的线程数量为 Integer.MAX_VALUE ，可能会创建大量线程，从而导致 OOM。
+
+1. FixedThreadPool 
+
+2. SingleThreadExecutor 
+
+3. CachedThreadPool 
 
 ___ 

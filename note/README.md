@@ -10,5 +10,5 @@
 - [集合与并发容器](juc.md)
    - [基础集合扫盲](juc.md#基础集合扫盲)
    - [JUC(java.util.concurrent)集合扫盲](juc.md#JUC扫盲)
-- [线程池相关](excutor.md) 
+- [线程池相关](executor.md) 
 - [常见经典算法（待完善）](algorithm.md)
