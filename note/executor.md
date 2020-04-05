@@ -18,7 +18,21 @@
     给`ThreadPoolExecutor`或`ScheduledThreadPoolExecutor`执行。
     （调用`submit()`方法时会返回一个`FutureTask`对象）
 ___    
-## 任务（Runnable/Callable）和 异步计算的结果（Future）
+
+## 目录
+
+- [任务（Runnable/Callable）和 异步计算的结果（Future](#任务（Runnable/Callable）和异步计算的结果（Future）)
+    - [线程](#线程)
+    - [Runnable/Callable/Future](#Runnable/Callable/Future)
+- [任务的执行（Executor）](#任务的执行（Executor）)
+    - [ThreadPoolExecutor](#ThreadPoolExecutor)
+    - [ScheduledThreadPoolExecutor](#ScheduledThreadPoolExecutor)
+    - [Executors](#Executors)
+        - [Executors提供的线程池创建方法](#Executors提供的线程池创建方法)
+    
+___
+
+## 任务（Runnable/Callable）和异步计算的结果（Future）
 这里先简单回顾一下线程、`Runnable`和`Callable`相关内容。
 
 ### 线程
@@ -279,14 +293,22 @@ ___
     + I/O 密集型任务(2N)： 这种任务应用起来，系统会用大部分的时间来处理 I/O 交互，
             而线程在处理 I/O 的时间段内不会占用 CPU 来处理，这时就可以将 CPU 交出给其它线程使用。
             因此在 I/O 密集型任务的应用中，我们可以多配置一些线程，具体的计算方法是 2N。
-
+    + 需考虑上下文切换（时间片轮转）
+    
 + 关闭线程池：`shutdown()`（等待全部执行完成）和`shutdownNow()`（立即停止）
 ___ 
-#### ScheduledThreadPoolExecutor
+### ScheduledThreadPoolExecutor
+`ScheduledThreadPoolExecutor`主要用来在给定的延迟后运行任务，或者定期执行任务。但实际基本不会用到。这里做了解学习。
 
+`ScheduledThreadPoolExecutor`采用的任务队列是`DelayedWorkQueue`，它是基于堆结构（类似`DelayQueue`和`PriorityQueue`的数据结构）。
+
+它会对队列中的任务进行排序，执行所需时间短的放在前面先被执行(`ScheduledFutureTask`的`time`变量小的先执行)，
+如果执行所需时间相同则先提交的任务将被先执行(`ScheduledFutureTask`的`squenceNumber`变量小的先执行)。
+
+在实际情况中推荐使用`Quartz`进行任务调度。
 ___
 ### Executors
-
+Executors类中包含了很多方法。（待完善）
 #### Executors提供的线程池创建方法
 Executors提供了3种既定的线程池创建方法，但不建议这么使用，而是通过`ThreadPoolExecutor`构造函数的方式：
 + `Executors.newCachedThreadPool()`：无限线程池。

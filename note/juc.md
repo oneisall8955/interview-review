@@ -8,6 +8,7 @@
         - [Map](#Map)
         - [Set](#Set)
 - [JUC(java.util.concurrent)扫盲](#JUC扫盲)
+    - [JUC关键点——volatile/CAS/AQS](#JUC关键点)
     - [Atomic原子类](#Atomic原子类)
         - [基本类型原子类](#基本类型原子类)
         - [数组类型原子类](#数组类型原子类)
@@ -174,9 +175,10 @@ ___
 `java.util.concurrent`包 简称 JUC 包。JUC离不开 **CAS(Compare And Swap)**、**volatile**和**AQS(AbstractQueuedSynchronizer)**。
 `CAS`提供了一种无须加锁即可进行同步的思想，
 `volatile`提供了访问变量的可见性，在很多场景下需要使用到。
-`AQS(AbstractQueuedSynchronizer)`提供了一种实现阻塞锁和一系列依赖FIFO等待队列的同步器的框架。JUC中很多类都是基于AQS构建的，如`ReentrantLock`。
+`AQS(AbstractQueuedSynchronizer)`提供了一种实现阻塞锁和一系列依赖FIFO等待队列的同步器的框架。
+JUC中很多类都是基于AQS构建的，如`ReentrantLock`，AQS使用`ReentrantLock`协助了解。
 需要了解`CAS`、`volatile`、`ReentrantLock`几个基础知识。
-
+### JUC关键点
 1. **CAS(Compare And Swap)**
 
     比较并交换，是CPU硬件级别提供的功能。在JUC中使用该技术实现乐观锁。
