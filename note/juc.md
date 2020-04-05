@@ -229,8 +229,48 @@ JUC中很多类都是基于AQS构建的，如`ReentrantLock`，AQS使用`Reentra
         + 该变量没有包含在具有其他变量的不变式中。
         
         只有在状态真正独立于程序内其他内容时才能使用 `volatile`，包括变量的当前状态。
+
+3. **AQS**
+
+    AQS即`AbstractQueuedSynchronizer`，这个类在`java.util.concurrent.locks`包下面。
+    AQS 是一个用来构建锁和同步器的框架。使用 AQS 能简单且高效地构造出应用广泛的大量的同步器，
+    比如`ReentrantLock`，`Semaphore`，其他的诸如`ReentrantReadWriteLock`，`SynchronousQueue`，`FutureTask(jdk1.7)`等等皆是基于`AQS`的。
+    + 核心思想
         
-3. **ReentrantLock**
+        如果被请求的共享资源空闲，则将当前请求资源的线程设置为有效的工作线程，并且将共享资源设置为锁定状态。
+        如果被请求的共享资源被占用，那么就需要一套线程阻塞等待以及被唤醒时锁分配的机制，
+        这个机制 AQS 是用 CLH 队列锁实现的，即将暂时获取不到锁的线程加入到队列中。
+        
+        `CLH(Craig,Landin,and Hagersten)`队列是一个虚拟的双向队列（虚拟的双向队列即不存在队列实例，仅存在结点之间的关联关系）。
+        `AQS`是将每条请求共享资源的线程封装成一个`CLH`锁队列的一个结点（Node）来实现锁的分配
+
+    + 资源共享方式
+        + 独占（Exclusive）：只有一个线程能执行，如`ReentrantLock`（见下 4. **ReentrantLock**），分为公平锁和非公平锁。
+        + 共享（Share）：多个线程可同时执行，如`Semaphore`/`CountDownLatch`。
+    + AQS 结构
+        
+        ```
+        // 头结点，可理解为 当前持有锁的线程
+        private transient volatile Node head;
+        // 阻塞的尾节点，每个新的节点都插入到最后，形成一个链表
+        private transient volatile Node tail;
+        
+        // 当前锁的状态，0代表没有被占用，大于 0 代表有线程持有当前锁
+        // 这个值可以大于 1，是因为锁可以重入，每次重入都加上 1
+        private volatile int state;
+        
+        // 当前持有独占锁的线程，举个最重要的使用例子，因为锁可以重入
+        // reentrantLock.lock()可以嵌套调用多次，所以每次用这个来判断当前线程是否已经拥有了锁
+        // if (currentThread == getExclusiveOwnerThread()) {state++}
+        private transient Thread exclusiveOwnerThread; //继承自AbstractOwnableSynchronizer
+        ```
+    + AQS组件(待完善)
+        
+    
+参考：[一行一行源码分析清楚 AbstractQueuedSynchronizer(一)](https://javadoop.com/post/AbstractQueuedSynchronizer "AbstractQueuedSynchronizer1")        
+参考：[一行一行源码分析清楚 AbstractQueuedSynchronizer(二)](https://www.javadoop.com/post/AbstractQueuedSynchronizer-2/ "AbstractQueuedSynchronizer2")
+        
+4. **ReentrantLock**
 
 `ReentrantLock`为可重入锁，实现了`Lock`接口。`ReentrantLock`和`synchronized`都是可重入锁。
 + 可重入锁：也叫做递归锁，当一个线程请求得到一个对象锁后再次请求此对象锁，可以再次得到该对象锁。
@@ -308,7 +348,20 @@ JUC中很多类都是基于AQS构建的，如`ReentrantLock`，AQS使用`Reentra
 + `unlock()`：释放锁，还原状态。
 + `lockInterruptibly()`：一个可以响应中断的获取锁的方法，可以用来解决死锁问题。
 
-参考：[一行一行源码分析清楚 AbstractQueuedSynchronizer](https://www.javadoop.com/post/AbstractQueuedSynchronizer-2/ "AbstractQueuedSynchronizer")
++ 公平锁和非公平锁
+    + 非公平锁在调用`lock`后，首先就会调用`CAS`进行一次抢锁，如果这个时候恰巧锁没有被占用，
+        那么直接就获取到锁返回了。
+    + 非公平锁在 CAS 失败后，和公平锁一样都会进入到`tryAcquire`方法，在`tryAcquire`方法中，
+        如果发现锁这个时候被释放了（state == 0），非公平锁会直接 CAS 抢锁，
+        但是公平锁会判断等待队列是否有线程处于等待状态，如果有则不去抢锁，直接排到后面。
+        
+    公平锁和非公平锁就这两点区别，如果这两次 CAS 都不成功，那么后面非公平锁和公平锁是一样的，
+    都要进入到阻塞队列等待唤醒。
+
+    相对来说，非公平锁会有更好的性能，因为它的吞吐量比较大。当然，
+    非公平锁让获取锁的时间变得更加不确定，可能会导致在阻塞队列中的线程长期处于饥饿状态。
+    
+
 
 (待补充)
 ___   
