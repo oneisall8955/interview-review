@@ -11,6 +11,6 @@
    - [基础集合扫盲](juc.md#基础集合扫盲)
    - [JUC(java.util.concurrent)集合扫盲](juc.md#JUC扫盲)
 - [线程池相关](executor.md) 
-    - [Runnable/Callable/Future](executor.md#任务和异步计算的结果)
+    - [Runnable、Callable、Future](executor.md#任务和异步计算的结果)
     - [Executor](executor.md#任务的执行)
 - [常见经典算法（待完善）](algorithm.md)
