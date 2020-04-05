@@ -21,10 +21,10 @@ ___
 
 ## 目录
 
-- [任务（Runnable/Callable）和 异步计算的结果（Future](#任务（Runnable/Callable）和异步计算的结果（Future）)
+- [任务（Runnable/Callable）和 异步计算的结果（Future](#任务和异步计算的结果)
     - [线程](#线程)
-    - [Runnable/Callable/Future](#Runnable/Callable/Future)
-- [任务的执行（Executor）](#任务的执行（Executor）)
+    - [Runnable/Callable/Future](#Runnable&Callable&Future)
+- [任务的执行（Executor）](#任务的执行)
     - [ThreadPoolExecutor](#ThreadPoolExecutor)
     - [ScheduledThreadPoolExecutor](#ScheduledThreadPoolExecutor)
     - [Executors](#Executors)
@@ -32,7 +32,8 @@ ___
     
 ___
 
-## 任务（Runnable/Callable）和异步计算的结果（Future）
+## 任务和异步计算的结果
+任务（Runnable/Callable）和异步计算的结果（Future）。
 这里先简单回顾一下线程、`Runnable`和`Callable`相关内容。
 
 ### 线程
@@ -80,7 +81,7 @@ ___
     + 线程的生命周期
     + 创建线程的几种方式
     + 待补充    
-### Runnable/Callable/Future
+### Runnable&Callable&Future
 + `Runnable`接口
 
     属于`java.lang`包，是线程执行类必须实现此接口，并重写`run()`方法。
@@ -149,7 +150,8 @@ ___
         ```
     (暂缓)    
 ___ 
-## 任务的执行（Executor）
+## 任务的执行
+任务的执行是交由`Executor`完成
 ### ThreadPoolExecutor
 `ThreadPoolExecutor`是`Executor`框架最核心的线程池实现类。`ScheduledThreadPoolExecutor`是其子类。
 继承了`AbstractExecutorService`类（实现了`ExecutorService`->`Executor`）。
