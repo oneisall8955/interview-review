@@ -17,5 +17,3 @@ Hashtable 和 ConcurrentHashMap 都为线程安全的集合。
     + Hashtable使用的是public方法加上`synchronized`关键字，一次锁住整个hash表。
     + ConcurrentHashMap采用了 CAS + synchronized 来保证并发安全性。
 
-
-## 
