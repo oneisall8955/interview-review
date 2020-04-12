@@ -504,7 +504,6 @@ AQS 是一个用来构建锁和同步器的框架。使用 AQS 能简单且高�
         return nonfairTryAcquire(acquires);
     }    
     ```
-    
 + `unlock()`：释放锁，还原状态。包括了判断是否完全释放锁、是否有重入，然后释放锁，唤醒后继节点
 + `lockInterruptibly()`：一个可以响应中断的获取锁的方法，可以用来解决死锁问题。
 
@@ -526,7 +525,7 @@ AQS 是一个用来构建锁和同步器的框架。使用 AQS 能简单且高�
     + 线程的阻塞和解除阻塞。
     + 阻塞队列。把争抢锁的线程加入队列（实际是链表）等待，遵循FIFO。AQS 采用了 CLH 锁的变体来实现。
 
-(待补充)
++ 中断：Java的中断属于状态标识。程序可以选择响应中断和不响应中断。
 ___
 #### Condition
 `Condition`是依赖于`ReentrantLock`的，不管是调用`await`进入等待还是`signal`唤醒，都必须获取到锁才能进行操作。
@@ -781,9 +780,190 @@ ___
         条件队列，待其他线程使用signal唤醒。
 ___
 #### AQS组件
-(待完善)
+AQS的共享模式使用（关于共享锁的内容，后面两个还需要再深入了解一下，看了一遍还是有点懵逼）
 ##### CountDownLatch
+latch 的中文意思是门栓、栅栏。到了某个设置值的时候，才放开一起运行。
 
++ 构造方法：构造方法内部采用`Sync`内部类继承AQS作为数据结构，并将传入的数值作为状态值state，用于“开闸”。
+当 state == 0 时“开闸”。
+
+`CountDownLatch`主要使用`await()`和`countDown()`进行“关门”和“开闸”。它们需要不同的线程去调用。
+
++ `await()`：等待唤醒，阻塞。
+    
+    ```
+    // CountDownLatch类中的方法
+    public void await() throws InterruptedException {
+        sync.acquireSharedInterruptibly(1);
+    }
+    ```
+    
+    ```
+    // AbstractQueuedSynchronizer类中的方法
+    public final void acquireSharedInterruptibly(int arg)
+            throws InterruptedException {
+        // 响应中断，如果中断了就抛出异常
+        if (Thread.interrupted())
+            throw new InterruptedException();
+        // 只要state不为0，就返回true
+        if (tryAcquireShared(arg) < 0)
+            doAcquireSharedInterruptibly(arg);
+    }
+    
+    // 只有当 state == 0 的时候，这个方法才会返回 1
+    protected int tryAcquireShared(int acquires) {
+        return (getState() == 0) ? 1 : -1;
+    }        
+    ```
+    只要未“开闸”（未到线程一起运行的临界值），就会进到`doAcquireSharedInterruptibly()`方法获取共享锁，
+    并且为可中断。
+    ```
+    private void doAcquireSharedInterruptibly(int arg) throws InterruptedException {
+        // 把当前线程以SHARED形式入队，返回入队节点
+        final Node node = addWaiter(Node.SHARED);
+        boolean failed = true;
+        try {
+            for (;;) {
+                // 寻找当前节点的前驱节点
+                final Node p = node.predecessor();
+                // 如果前驱节点是头节点，说明当前线程是在阻塞队列的第一个
+                if (p == head) {
+                    // 如果还没到临界值（state == 0），r都是-1
+                    int r = tryAcquireShared(arg);
+                    // 只有唤醒线程之后才会进入if
+                    if (r >= 0) {
+                        // 唤醒后的线程会将head节点设置为node（当前线程）
+                        // 然后继续唤醒后继节点
+                        setHeadAndPropagate(node, r);
+                        p.next = null; // help GC
+                        failed = false;
+                        return;
+                    }
+                }
+                // 第一次会把前驱节点设置为SIGNAL，重新循环
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    // 挂起线程，等待唤醒
+                    parkAndCheckInterrupt())
+                    throw new InterruptedException();
+            }
+        } finally {
+            if (failed)
+                cancelAcquire(node);
+        }
+    }    
+    ```
+    如果线程在挂起入队后等待唤醒的过程中，当前线程会设置前驱节点的`waitStatus`为`SIGNAL(-1)`。
+    ```
+    private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        // 正常情况下，前驱节点的waitStatus为0，会进入到设置前驱节点的`waitStatus`，返回false回到循环中
+        // 第二次循环进来后，pred已经为SIGNAL， 返回true
+        int ws = pred.waitStatus;
+        if (ws == Node.SIGNAL)
+            /*
+             * This node has already set status asking a release
+             * to signal it, so it can safely park.
+             */
+            return true;
+        if (ws > 0) { 
+            // 清除取消的节点
+            /*
+             * Predecessor was cancelled. Skip over predecessors and
+             * indicate retry.
+             */
+            do {
+                node.prev = pred = pred.prev;
+            } while (pred.waitStatus > 0);
+            pred.next = node;
+        } else {
+            /*
+             * waitStatus must be 0 or PROPAGATE.  Indicate that we
+             * need a signal, but don't park yet.  Caller will need to
+             * retry to make sure it cannot acquire before parking.
+             */
+            compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
+        }
+        return false;
+    }    
+    ```
+    在线程挂起的时候，需要有别的线程执行`countDown()`来达到唤醒标准。
++ `countDown()`：达到标准就去唤醒等待线程。
+    
+    ```
+    public void countDown() {
+        sync.releaseShared(1);
+    }
+    
+    public final boolean releaseShared(int arg) {
+        // 只有 state == 0 时，才会进入if语句
+        if (tryReleaseShared(arg)) {
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+    
+    // 只有state减到0才会返回true，其他情况都是使 state = state - 1
+    protected boolean tryReleaseShared(int releases) {
+    // Decrement count; signal when transition to zero
+        for (;;) {
+            int c = getState();
+            if (c == 0)
+                return false;
+            int nextc = c-1;
+            if (compareAndSetState(c, nextc))
+                return nextc == 0;
+        }
+    }    
+    ```
+    当达到开闸标准（state == 0）的时候，执行`doReleaseShared()`唤醒线程。
+    ```
+    private void doReleaseShared() {
+        for (;;) {
+            Node h = head;
+            // 判断是否是空队列
+            // 当队列为空或队列中没有需要唤醒的节点时不需要唤醒后继节点
+            if (h != null && h != tail) {
+                // 如果不是空队列，head的waitStatus为SIGNAL(-1)，在入队等待时设置的
+                int ws = h.waitStatus;
+                if (ws == Node.SIGNAL) {
+                    // 尝试CAS更新头节点 waitStatue 为0
+                    if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
+                        continue;            // loop to recheck cases
+                    // 唤醒head的后继节点，即阻塞队列的第一个节点
+                    unparkSuccessor(h);
+                }
+                else if (ws == 0 &&
+                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                    continue;                // loop on failed CAS
+            }
+            // head节点被占领了就继续循环
+            if (h == head)                   // loop if head changed
+                break;
+        }
+    }    
+    ```
+___    
+##### CyclicBarrier
+`CyclicBarrier`为另外一个共享锁，意思为“可重复利用的栅栏”，它是`ReentrantLock`和`Condition`的组合使用。
+等第一个栅栏一起通过后，再重新生成另一个栅栏。
+
++ 构造方法：传入指定值和通过栅栏前需要执行的操作
+    
+    ```
+    public CyclicBarrier(int parties, Runnable barrierAction) {
+        if (parties <= 0) throw new IllegalArgumentException();
+        this.parties = parties;
+        this.count = parties;
+        this.barrierCommand = barrierAction;
+    }
+    ```
+
+（待完善）
+___
+##### Semaphore
+类似一个资源池，每个线程需要调用`acquire()`方法获取资源，然后才能执行，
+执行完后，需要`release`资源，让给其他的线程用。
+如果池里的资源暂时没有可以使用的，线程将进入阻塞队列等待。
 ___
 ### Atomic原子类
 
